@@ -3,9 +3,11 @@ import 'dart:ui';
 
 import 'package:driver/app/theme/app_color.dart';
 import 'package:driver/core/di/providers.dart';
+import 'package:driver/features/auth/presentation/pages/signin_page.dart';
 import 'package:driver/features/earnings/presentation/pages/driver_earnings_page.dart';
 import 'package:driver/features/home/presentation/pages/home_page.dart';
 import 'package:driver/features/notifications/presentation/pages/driver_notifications_page.dart';
+import 'package:driver/features/profile/presentation/pages/driver_profile_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,24 +26,28 @@ class _MainShellState extends ConsumerState<MainShell>
   bool _isVisible = true;
 
   // đúng 5 tab
-  final List<bool> _built = [true, false, false, false, false];
+  final List<bool> _built = [true, false, false, false];
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // preload badge order
 
-      // preload badge notification
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       await ref
           .read(driverNotificationControllerProvider.notifier)
           .loadUnreadOnly();
 
       await ref.read(driverSocketBootstrapControllerProvider).start();
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await ref.read(driverSocketBootstrapControllerProvider).start();
-    });
+  }
+
+  Future<void> _openSignin() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const SigninPage(),
+        fullscreenDialog: true,
+      ),
+    );
   }
 
   // đúng 5 page theo số destination
@@ -49,12 +55,12 @@ class _MainShellState extends ConsumerState<MainShell>
     HomePage(),
     DriverEarningsPage(),
     DriverNotificationsPage(),
-    _PlaceholderPage(title: 'Tài khoản'),
+    DriverProfilePage(),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final double bottomPadding = MediaQuery.of(context).padding.bottom;
+    // final double bottomPadding = MediaQuery.of(context).padding.bottom;
     const double navBarHeight = 55.0;
 
     final authState = ref.watch(driverAuthControllerProvider);
@@ -110,7 +116,19 @@ class _MainShellState extends ConsumerState<MainShell>
               overlayColor: const WidgetStatePropertyAll(Colors.transparent),
               indicatorColor: Colors.transparent,
               selectedIndex: _index,
-              onDestinationSelected: (i) {
+              onDestinationSelected: (i) async {
+                final auth = ref.read(driverAuthControllerProvider);
+                final isLoggedIn = auth.me != null;
+
+                final protectedTab = i == 1 || i == 2 || i == 3;
+
+                if (protectedTab && !isLoggedIn) {
+                  await _openSignin();
+                  return;
+                }
+
+                if (!mounted) return;
+
                 setState(() {
                   _index = i;
                   _built[i] = true;

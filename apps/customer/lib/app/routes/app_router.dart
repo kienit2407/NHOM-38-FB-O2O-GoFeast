@@ -145,8 +145,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/address/add',
         builder: (context, state) {
-          final editing = state.extra as SavedAddress?;
-          return AddAddressPage(editing: editing);
+          final extra = state.extra;
+
+          if (extra is SavedAddress) {
+            return AddAddressPage(editing: extra);
+          }
+
+          if (extra is Map && extra['checkoutDraft'] is CheckoutDeliveryDraft) {
+            return AddAddressPage.checkoutDraft(
+              draft: extra['checkoutDraft'] as CheckoutDeliveryDraft,
+            );
+          }
+
+          return const AddAddressPage();
         },
       ),
       GoRoute(

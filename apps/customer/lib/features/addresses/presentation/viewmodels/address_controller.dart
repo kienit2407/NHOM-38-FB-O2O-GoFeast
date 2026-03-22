@@ -21,19 +21,19 @@ class AddressController extends StateNotifier<AddressState> {
   final AddressRepository _repo;
   final LocationService _loc;
   final Future<bool> Function() _isLoggedIn;
-
+  int _loadVersion = 0;
   //  RAM cache theo session (kill app là mất)
   static CurrentLocation? _sessionCurrent;
 
   Future<void> load({bool force = false}) async {
-    //  1) Nếu đã có current trong state và không force -> không gọi GPS nữa
+    final requestVersion = ++_loadVersion;
+
     if (!force && state.current != null) {
       state = state.copyWith(isFetching: false, didLoad: true, error: null);
       await _syncSavedOnly();
       return;
     }
 
-    //  2) Nếu state chưa có nhưng RAM cache có -> dùng cache
     if (!force && _sessionCurrent != null) {
       state = state.copyWith(
         isFetching: false,
@@ -45,7 +45,6 @@ class AddressController extends StateNotifier<AddressState> {
       return;
     }
 
-    //  3) Chỉ tới đây mới thật sự gọi GPS/reverse
     state = state.copyWith(isFetching: true, error: null);
 
     try {
@@ -54,35 +53,39 @@ class AddressController extends StateNotifier<AddressState> {
           .reversePublic(lat: pos.lat, lng: pos.lng)
           .catchError((_) => null);
 
-      final current = CurrentLocation(
+      if (requestVersion != _loadVersion) return;
+
+      final gpsCurrent = CurrentLocation(
         lat: pos.lat,
         lng: pos.lng,
         address: addr,
       );
 
-      //  lưu RAM cache
-      _sessionCurrent = current;
+      _sessionCurrent ??= gpsCurrent;
 
-      // update location lên BE nếu login (giữ như bạn)
       if (await _isLoggedIn()) {
         await _repo
             .updateMyLocation(lat: pos.lat, lng: pos.lng, address: addr)
             .catchError((_) {});
       }
 
-      // list saved (giữ như bạn)
       List<SavedAddress> saved = const [];
       if (await _isLoggedIn()) {
         saved = await _repo.listMySavedAddresses();
       }
 
+      if (requestVersion != _loadVersion) return;
+
       state = state.copyWith(
         isFetching: false,
         didLoad: true,
-        current: current,
+        current: _sessionCurrent ?? gpsCurrent,
+        deviceLocation: gpsCurrent,
         saved: saved,
       );
     } catch (e) {
+      if (requestVersion != _loadVersion) return;
+
       state = state.copyWith(
         isFetching: false,
         didLoad: true,
@@ -91,17 +94,57 @@ class AddressController extends StateNotifier<AddressState> {
     }
   }
 
-  Future<void> setCurrentFromCheckoutDraft(CheckoutDeliveryDraft draft) async {
-    state = state.copyWith(
-      current: CurrentLocation(
-        address: draft.address,
-        lat: draft.lat,
-        lng: draft.lng,
-        receiverName: draft.receiverName,
-        receiverPhone: draft.receiverPhone,
-        deliveryNote: draft.addressNote,
-      ),
+  Future<void> setCurrentManual({
+    required String address,
+    required double lat,
+    required double lng,
+    String? receiverName,
+    String? receiverPhone,
+    String? deliveryNote,
+    bool syncBackend = true,
+  }) async {
+    _loadVersion++;
+
+    final cur = CurrentLocation(
+      lat: lat,
+      lng: lng,
+      address: address,
+      receiverName: receiverName,
+      receiverPhone: receiverPhone,
+      deliveryNote: deliveryNote,
     );
+
+    _sessionCurrent = cur;
+    state = state.copyWith(current: cur);
+
+    if (syncBackend && await _isLoggedIn()) {
+      await _repo
+          .updateMyLocation(
+            lat: lat,
+            lng: lng,
+            address: address,
+            receiverName: receiverName,
+            receiverPhone: receiverPhone,
+            deliveryNote: deliveryNote,
+          )
+          .catchError((_) {});
+    }
+  }
+
+  Future<void> setCurrentFromCheckoutDraft(CheckoutDeliveryDraft draft) async {
+    _loadVersion++;
+
+    final cur = CurrentLocation(
+      address: draft.address,
+      lat: draft.lat,
+      lng: draft.lng,
+      receiverName: draft.receiverName,
+      receiverPhone: draft.receiverPhone,
+      deliveryNote: draft.addressNote,
+    );
+
+    _sessionCurrent = cur;
+    state = state.copyWith(current: cur);
   }
 
   //  chỉ sync saved, không đụng GPS
@@ -156,6 +199,9 @@ class AddressController extends StateNotifier<AddressState> {
       lat: a.lat ?? (state.current?.lat ?? 0),
       lng: a.lng ?? (state.current?.lng ?? 0),
       address: a.address,
+      receiverName: a.receiverName,
+      receiverPhone: a.receiverPhone,
+      deliveryNote: a.deliveryNote,
     );
 
     //  update state + RAM cache

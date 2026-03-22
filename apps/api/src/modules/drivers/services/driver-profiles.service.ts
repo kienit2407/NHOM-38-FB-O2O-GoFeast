@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -8,6 +8,8 @@ import {
 } from '../schemas/driver-profile.schema';
 import { OrderLifecycleService } from 'src/modules/orders/services/order-lifecycle.service';
 import { DriverLocationRelayService } from './driver-location-relay.service';
+import { User, UserDocument } from 'src/modules/users/schemas/user.schema';
+import { UpdateDriverProfileDto } from '../dtos/update-driver-profile.dto';
 
 type UpsertDriverProfilePatch = Partial<Pick<
     DriverProfile,
@@ -29,8 +31,132 @@ export class DriverProfilesService {
     constructor(
         @InjectModel(DriverProfile.name) private readonly model: Model<DriverProfileDocument>,
         private readonly driverLocationRelayService: DriverLocationRelayService,
+        @InjectModel(User.name)
+        private readonly userModel: Model<UserDocument>,
     ) { }
+    private async getUserOrThrow(userId: string) {
+        const uid = new Types.ObjectId(userId);
 
+        const user = await this.userModel.findOne({
+            _id: uid,
+            role: 'driver',
+            deleted_at: null,
+        });
+
+        if (!user) throw new NotFoundException('Driver user not found');
+        return user;
+    }
+
+    private async getDriverProfileOrThrow(userId: string) {
+        const uid = new Types.ObjectId(userId);
+
+        const profile = await this.model.findOne({ user_id: uid });
+        if (!profile) throw new NotFoundException('Driver profile not found');
+        return profile;
+    }
+    async getMyProfile(userId: string) {
+        const user = await this.getUserOrThrow(userId);
+        const profile = await this.ensureForUser(userId);
+        return this.toProfileResponse(user, profile);
+    }
+    async updateMyProfile(userId: string, dto: UpdateDriverProfileDto) {
+        const uid = new Types.ObjectId(userId);
+
+        await this.getUserOrThrow(userId);
+        await this.ensureForUser(userId);
+
+        const userPatch: Record<string, any> = {};
+        const driverPatch: Record<string, any> = {};
+
+        if (dto.fullName !== undefined) {
+            userPatch.full_name = dto.fullName;
+        }
+
+        if (dto.phone !== undefined) {
+            if (dto.phone) {
+                const existed = await this.userModel.findOne({
+                    _id: { $ne: uid },
+                    phone: dto.phone,
+                    deleted_at: null,
+                });
+
+                if (existed) {
+                    throw new ConflictException('Phone already in use');
+                }
+            }
+
+            userPatch.phone = dto.phone;
+        }
+
+        if (dto.gender !== undefined) {
+            userPatch.gender = dto.gender;
+        }
+
+        if (dto.dateOfBirth !== undefined) {
+            userPatch.date_of_birth = dto.dateOfBirth
+                ? new Date(dto.dateOfBirth)
+                : null;
+        }
+
+        if (dto.avatarUrl !== undefined) {
+            userPatch.avatar_url = dto.avatarUrl;
+        }
+
+        if (dto.bankName !== undefined) {
+            driverPatch.bank_name = dto.bankName;
+        }
+
+        if (dto.bankAccountName !== undefined) {
+            driverPatch.bank_account_name = dto.bankAccountName;
+        }
+
+        if (dto.bankAccountNumber !== undefined) {
+            driverPatch.bank_account_number = dto.bankAccountNumber;
+        }
+
+        if (Object.keys(userPatch).length > 0) {
+            await this.userModel.findByIdAndUpdate(uid, { $set: userPatch });
+        }
+
+        if (Object.keys(driverPatch).length > 0) {
+            await this.model.findOneAndUpdate(
+                { user_id: uid },
+                { $set: driverPatch },
+                { new: true, upsert: true },
+            );
+        }
+
+        const updatedUser = await this.getUserOrThrow(userId);
+        const updatedProfile = await this.getDriverProfileOrThrow(userId);
+
+        return this.toProfileResponse(updatedUser, updatedProfile);
+    }S
+    private toProfileResponse(user: any, profile: any) {
+        return {
+            id: String(user._id),
+            full_name: user.full_name ?? null,
+            phone: user.phone ?? null,
+            email: user.email ?? null,
+            gender: user.gender ?? null,
+            date_of_birth: user.date_of_birth ?? null,
+            avatar_url: user.avatar_url ?? null,
+
+            driver_profile: {
+                verification_status: profile.verification_status ?? null,
+                is_verified:
+                    profile.verification_status === DriverVerificationStatus.APPROVED,
+                accept_food_orders: profile.accept_food_orders ?? false,
+
+                bank_name: profile.bank_name ?? null,
+                bank_account_name: profile.bank_account_name ?? null,
+                bank_account_number: profile.bank_account_number ?? null,
+
+                current_location: profile.current_location ?? null,
+                last_location_update: profile.last_location_update ?? null,
+                updated_at: profile.updated_at ?? null,
+            },
+        };
+    }
     async findByUserId(userId: string) {
         return this.model.findOne({ user_id: new Types.ObjectId(userId) });
     }

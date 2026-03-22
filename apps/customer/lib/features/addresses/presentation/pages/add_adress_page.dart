@@ -5,14 +5,26 @@ import 'package:customer/features/addresses/data/models/saved_address_models.dar
 import 'package:customer/features/auth/domain/entities/auth_user.dart'
     hide SavedAddress;
 import 'package:customer/features/auth/presentation/viewmodels/auth_providers.dart';
+import 'package:customer/features/orders/data/models/checkout_delivery_draft.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 class AddAddressPage extends ConsumerStatefulWidget {
-  const AddAddressPage({super.key, this.editing});
+  const AddAddressPage({super.key, this.editing})
+    : checkoutDraftEditing = null,
+      returnCheckoutDraftOnly = false;
+
+  const AddAddressPage.checkoutDraft({
+    super.key,
+    required CheckoutDeliveryDraft draft,
+  }) : editing = null,
+       checkoutDraftEditing = draft,
+       returnCheckoutDraftOnly = true;
 
   final SavedAddress? editing;
+  final CheckoutDeliveryDraft? checkoutDraftEditing;
+  final bool returnCheckoutDraftOnly;
 
   @override
   ConsumerState<AddAddressPage> createState() => _AddAddressPageState();
@@ -30,7 +42,8 @@ class _AddAddressPageState extends ConsumerState<AddAddressPage> {
   bool _didPrefill = false;
 
   bool get _isEdit => widget.editing != null;
-
+  bool get _isCheckoutDraftEdit =>
+      widget.returnCheckoutDraftOnly && widget.checkoutDraftEditing != null;
   bool get _canSave {
     return _nameCtrl.text.trim().isNotEmpty &&
         _phoneCtrl.text.trim().isNotEmpty &&
@@ -41,24 +54,38 @@ class _AddAddressPageState extends ConsumerState<AddAddressPage> {
   void initState() {
     super.initState();
 
-    // 1) Prefill từ auth (1 lần)
-    _tryPrefillFromUser(ref.read(authViewModelProvider).valueOrNull);
-
-    // 2) Nếu edit => fill từ saved address
     final e = widget.editing;
+    final draft = widget.checkoutDraftEditing;
+
+    if (draft != null) {
+      _pickedAddress = draft.address;
+      _pickedLat = draft.lat;
+      _pickedLng = draft.lng;
+      _nameCtrl.text = draft.receiverName;
+      _phoneCtrl.text = draft.receiverPhone;
+      _noteCtrl.text = draft.addressNote;
+      _didPrefill = true;
+      return;
+    }
+
     if (e != null) {
       _pickedAddress = e.address;
       _pickedLat = e.lat;
       _pickedLng = e.lng;
+      _nameCtrl.text = (e.receiverName ?? '').trim();
+      _phoneCtrl.text = (e.receiverPhone ?? '').trim();
       _noteCtrl.text = (e.deliveryNote ?? '').trim();
+      _didPrefill = true;
+      return;
     }
 
-    // 3) listen auth (đặt ở initState để tránh crash do listen trong build)
+    _tryPrefillFromUser(ref.read(authViewModelProvider).valueOrNull);
   }
 
   void _tryPrefillFromUser(AuthUser? user) {
     if (user == null) return;
     if (_didPrefill) return;
+    if (_isEdit || _isCheckoutDraftEdit) return;
 
     final name = (user.fullName ?? '').trim();
     final phone = (user.phone ?? '').trim();
@@ -99,6 +126,22 @@ class _AddAddressPageState extends ConsumerState<AddAddressPage> {
   Future<void> _save() async {
     if (!_canSave) return;
 
+    if (_isCheckoutDraftEdit) {
+      if (!mounted) return;
+
+      context.pop(
+        CheckoutDeliveryDraft(
+          lat: _pickedLat ?? 0,
+          lng: _pickedLng ?? 0,
+          address: _pickedAddress ?? '',
+          receiverName: _nameCtrl.text.trim(),
+          receiverPhone: _phoneCtrl.text.trim(),
+          addressNote: _noteCtrl.text.trim(),
+        ),
+      );
+      return;
+    }
+
     final ctrl = ref.read(addressControllerProvider.notifier);
 
     if (_isEdit) {
@@ -127,8 +170,7 @@ class _AddAddressPageState extends ConsumerState<AddAddressPage> {
     }
 
     if (!mounted) return;
-    context
-        .pop(); // quay lại AddressPage (list sẽ tự refresh vì controller đã reload)
+    context.pop();
   }
 
   Future<void> _delete() async {
@@ -158,7 +200,9 @@ class _AddAddressPageState extends ConsumerState<AddAddressPage> {
           surfaceTintColor: Colors.transparent,
           centerTitle: true,
           title: Text(
-            _isEdit ? 'Sửa địa chỉ' : 'Thêm địa chỉ mới',
+            _isCheckoutDraftEdit
+                ? 'Sửa địa chỉ đơn hàng'
+                : (_isEdit ? 'Sửa địa chỉ' : 'Thêm địa chỉ mới'),
             style: const TextStyle(
               color: Color(0xFF111827),
               fontWeight: FontWeight.w800,

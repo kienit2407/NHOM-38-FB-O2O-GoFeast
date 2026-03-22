@@ -14,6 +14,12 @@ import 'package:go_router/go_router.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:lottie/lottie.dart';
 
+bool _hasValidLatLng(double? lat, double? lng) {
+  if (lat == null || lng == null) return false;
+  if (lat == 0 && lng == 0) return false;
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
@@ -116,16 +122,15 @@ class _HomePageState extends ConsumerState<HomePage> {
     final showCarousel = bannerSt.isLoading || bannerSt.items.isNotEmpty;
     final feedSt = ref.watch(feedControllerProvider);
 
-    final cur = addr.current;
-    final lat = cur?.lat;
-    final lng = cur?.lng;
+    final feedLoc = addr.deviceLocation ?? addr.current;
+    final lat = feedLoc?.lat;
+    final lng = feedLoc?.lng;
 
-    //  chỉ trigger fetch khi có lat/lng
-    if (lat != null && lng != null) {
+    if (_hasValidLatLng(lat, lng)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ref
             .read(feedControllerProvider.notifier)
-            .ensureForLocation(lat: lat, lng: lng);
+            .ensureForLocation(lat: lat!, lng: lng!);
       });
     }
     return Scaffold(

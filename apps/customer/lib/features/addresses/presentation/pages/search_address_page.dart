@@ -112,10 +112,11 @@ class _SearchAddressPageState extends ConsumerState<SearchAddressPage> {
   }
 
   Future<void> _pickItem(SearchPlaceItem item) async {
-    // resolve lat/lng bằng /geo/search (textsearch)
     final text = (item.description ?? item.subtitle).trim();
     if (text.isEmpty) {
-      Navigator.of(context).pop(item);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không xác định được vị trí này')),
+      );
       return;
     }
 
@@ -128,12 +129,30 @@ class _SearchAddressPageState extends ConsumerState<SearchAddressPage> {
       if (!mounted) return;
       setState(() => _isResolving = false);
 
-      // nếu resolve fail thì vẫn pop item gốc (đỡ mất công)
-      Navigator.of(context).pop(resolved ?? item);
+      if (resolved == null || resolved.lat == null || resolved.lng == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Không lấy được toạ độ của địa chỉ này, hãy thử địa chỉ khác',
+            ),
+          ),
+        );
+        return;
+      }
+
+      Navigator.of(context).pop(
+        item.copyWith(
+          lat: resolved.lat,
+          lng: resolved.lng,
+          description: resolved.description ?? item.description,
+        ),
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() => _isResolving = false);
-      Navigator.of(context).pop(item);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không lấy được toạ độ của địa chỉ này')),
+      );
     }
   }
 

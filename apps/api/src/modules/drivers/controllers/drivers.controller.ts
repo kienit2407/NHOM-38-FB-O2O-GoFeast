@@ -17,6 +17,7 @@ import { RolesGuard } from 'src/modules/auth/guards/roles.guard';
 import { DriverProfilesService } from '../services/driver-profiles.service';
 import { UpdateDriverAvailabilityDto } from '../dtos/update-driver-availability.dto';
 import { UpdateDriverLocationDto } from '../dtos/update-driver-location.dto';
+import { UpdateDriverProfileDto } from '../dtos/update-driver-profile.dto';
 
 
 @Controller('drivers')
@@ -27,7 +28,24 @@ export class DriversController {
     constructor(
         private readonly driverProfilesService: DriverProfilesService,
     ) { }
+    @Get('me/profile')
+    async getMyProfile(@Req() req: any) {
+        const data = await this.driverProfilesService.getMyProfile(req.user.userId);
+        return { success: true, data };
+    }
 
+    @Patch('me/profile')
+    @HttpCode(HttpStatus.OK)
+    async updateMyProfile(
+        @Req() req: any,
+        @Body() dto: UpdateDriverProfileDto,
+    ) {
+        const data = await this.driverProfilesService.updateMyProfile(
+            req.user.userId,
+            dto,
+        );
+        return { success: true, data };
+    }
     @Get('me/live-state')
     async getMyLiveState(@Req() req: any) {
         const data = await this.driverProfilesService.getLiveState(req.user.userId);

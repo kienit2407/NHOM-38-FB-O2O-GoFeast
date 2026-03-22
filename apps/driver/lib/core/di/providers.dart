@@ -23,6 +23,9 @@ import 'package:driver/features/earnings/presentation/viewmodels/driver_earnings
 import 'package:driver/features/notifications/data/repository/driver_notification_repository.dart';
 import 'package:driver/features/notifications/presentation/viewmodels/driver_notification_controller.dart';
 import 'package:driver/features/notifications/presentation/viewmodels/driver_notification_state.dart';
+import 'package:driver/features/profile/data/repository/driver_profile_repository.dart';
+import 'package:driver/features/profile/presentation/viewmodels/driver_profile_controller.dart';
+import 'package:driver/features/profile/presentation/viewmodels/driver_profile_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -150,7 +153,16 @@ final driverNotificationControllerProvider =
       final repo = ref.read(driverNotificationRepositoryProvider);
       return DriverNotificationController(repo);
     });
+final driverProfileRepositoryProvider = Provider<DriverProfileRepository>((ref) {
+  return DriverProfileRepository(ref.read(dioClientProvider));
+});
 
+final driverProfileControllerProvider =
+    StateNotifierProvider<DriverProfileController, DriverProfileState>((ref) {
+  return DriverProfileController(
+    ref.read(driverProfileRepositoryProvider),
+  );
+});
 /// =======================
 /// BOOTSTRAP
 /// =======================

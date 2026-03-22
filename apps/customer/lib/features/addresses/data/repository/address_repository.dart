@@ -28,9 +28,9 @@ class AddressRepository {
         'lat': lat,
         'lng': lng,
         if (address != null) 'address': address,
-        // if (receiverName != null) 'receiver_name': receiverName,
-        // if (receiverPhone != null) 'receiver_phone': receiverPhone,
-        // if (deliveryNote != null) 'delivery_note': deliveryNote,
+        if (receiverName != null) 'receiver_name': receiverName,
+        if (receiverPhone != null) 'receiver_phone': receiverPhone,
+        if (deliveryNote != null) 'delivery_note': deliveryNote,
       },
     );
 

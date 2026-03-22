@@ -12,12 +12,14 @@ import { DriverLocationRelayService } from './services/driver-location-relay.ser
 import { Order, OrderSchema } from 'src/modules/orders/schemas/order.schema';
 import { RealtimeModule } from 'src/modules/realtime/realtime.module';
 import { GeoModule } from 'src/modules/geo/geo.module';
+import { User, UserSchema } from '../users/schemas/user.schema';
 
 @Module({
     imports: [
         MongooseModule.forFeature([
             { name: DriverProfile.name, schema: DriverProfileSchema },
             { name: Order.name, schema: OrderSchema },
+            { name: User.name, schema: UserSchema },
         ]),
         RealtimeModule,
         GeoModule,

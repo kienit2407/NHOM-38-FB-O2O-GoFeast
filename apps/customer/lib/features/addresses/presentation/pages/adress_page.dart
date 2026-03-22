@@ -10,6 +10,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+String pickText(String? primary, String? fallback) {
+  final p = (primary ?? '').trim();
+  if (p.isNotEmpty) return p;
+  return (fallback ?? '').trim();
+}
+
+bool _hasValidLatLng(double? lat, double? lng) {
+  if (lat == null || lng == null) return false;
+  if (lat == 0 && lng == 0) return false;
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
 bool _sameDraft(CheckoutDeliveryDraft? a, CheckoutDeliveryDraft? b) {
   if (a == null || b == null) return false;
 
@@ -32,23 +44,43 @@ class AddressPage extends ConsumerWidget {
   final bool pickForCheckout;
   final CheckoutDeliveryDraft? checkoutDraft;
   final CheckoutDeliveryDraft? entryDraft;
-
-  Future<void> _pickFromSearch(BuildContext context) async {
+  Future<void> _pickFromSearch(BuildContext context, WidgetRef ref) async {
     final picked = await context.push<SearchPlaceItem>('/address/search');
     if (!context.mounted || picked == null) return;
+
+    if (picked.lat == null || picked.lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Địa chỉ chưa xác định được toạ độ, vui lòng chọn lại'),
+        ),
+      );
+      return;
+    }
 
     final address = picked.subtitle.trim().isNotEmpty
         ? '${picked.title}, ${picked.subtitle}'
         : picked.title;
 
     if (!pickForCheckout) {
+      final current = ref.read(addressControllerProvider).current;
+
+      await ref
+          .read(addressControllerProvider.notifier)
+          .setCurrentManual(
+            address: address,
+            lat: picked.lat!,
+            lng: picked.lng!,
+            receiverName: current?.receiverName,
+            receiverPhone: current?.receiverPhone,
+            deliveryNote: current?.deliveryNote,
+          );
       return;
     }
 
     context.pop(
       CheckoutDeliveryDraft(
-        lat: picked.lat ?? 0,
-        lng: picked.lng ?? 0,
+        lat: picked.lat!,
+        lng: picked.lng!,
         address: address,
         receiverName: checkoutDraft?.receiverName ?? '',
         receiverPhone: checkoutDraft?.receiverPhone ?? '',
@@ -57,12 +89,23 @@ class AddressPage extends ConsumerWidget {
     );
   }
 
-  Future<void> _pickFromMap(BuildContext context) async {
+  Future<void> _pickFromMap(BuildContext context, WidgetRef ref) async {
     final picked = await context.push<ChooseAddressResult>('/address/choose');
     if (!context.mounted || picked == null) return;
 
     if (!pickForCheckout) {
-      // flow thường: tuỳ bạn xử lý riêng
+      final current = ref.read(addressControllerProvider).current;
+
+      await ref
+          .read(addressControllerProvider.notifier)
+          .setCurrentManual(
+            address: picked.address,
+            lat: picked.lat,
+            lng: picked.lng,
+            receiverName: current?.receiverName,
+            receiverPhone: current?.receiverPhone,
+            deliveryNote: current?.deliveryNote,
+          );
       return;
     }
 
@@ -110,7 +153,7 @@ class AddressPage extends ConsumerWidget {
             ? 'Chọn địa chỉ cho đơn hàng'
             : 'Địa chỉ giao hàng',
         onBack: () => context.pop(),
-        onTapMap: () => context.push('/address/choose'),
+        onTapMap: () => _pickFromMap(context, ref),
       ),
       body: SafeArea(
         top: false,
@@ -118,7 +161,32 @@ class AddressPage extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           children: [
             const SizedBox(height: 4),
-
+            _Card(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => _pickFromSearch(context, ref),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  child: Row(
+                    children: [
+                      Icon(Icons.search, color: Color(0xFF9CA3AF)),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Tìm vị trí',
+                          style: TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFB0B7C3),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             // Card địa chỉ hiện tại
             _Card(
               child: InkWell(
@@ -186,12 +254,24 @@ class AddressPage extends ConsumerWidget {
                               ),
                       ),
                       if (pickForCheckout && checkoutDraft != null)
-                        const Text(
-                          'Dùng lại',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppColor.primary,
+                        TextButton(
+                          onPressed: () async {
+                            final updated = await context
+                                .push<CheckoutDeliveryDraft>(
+                                  '/address/add',
+                                  extra: {'checkoutDraft': checkoutDraft},
+                                );
+
+                            if (!context.mounted || updated == null) return;
+                            context.pop(updated);
+                          },
+                          child: const Text(
+                            'Sửa',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColor.primary,
+                            ),
                           ),
                         )
                       else if (st.isFetching)
@@ -245,15 +325,6 @@ class AddressPage extends ConsumerWidget {
                             onTapUse: () async {
                               if (pickForCheckout) {
                                 final item = saved[i];
-
-                                final ctrl = ref.read(
-                                  addressControllerProvider.notifier,
-                                );
-                                await ctrl.useSavedAsCurrent(
-                                  item,
-                                ); // cái này mới update DB current
-
-                                if (!context.mounted) return;
 
                                 context.pop(
                                   CheckoutDeliveryDraft(
