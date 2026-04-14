@@ -25,6 +25,9 @@ export const RealtimeEvents = {
     MERCHANT_DISPATCH_CANCELLED: 'merchant:dispatch:cancelled',
     MERCHANT_NOTIFICATION_NEW: 'merchant:notification:new',
 
+    ADMIN_ORDER_NEW: 'admin:order:new',
+    ADMIN_ORDER_STATUS: 'admin:order:status',
+
     MERCHANT_ROOM_JOIN: 'merchant:room:join',
     ORDER_ROOM_JOIN: 'order:room:join',
     ORDER_ROOM_LEAVE: 'order:room:leave',

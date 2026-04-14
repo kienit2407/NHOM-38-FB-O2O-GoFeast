@@ -416,6 +416,14 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
     return DateFormat('dd/MM/yyyy • HH:mm').format(dt.toLocal());
   }
 
+  void _onBackPressed() {
+    if (Navigator.of(context).canPop()) {
+      context.pop();
+      return;
+    }
+    context.go('/orders');
+  }
+
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
@@ -439,6 +447,11 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
         elevation: 0,
         centerTitle: true,
         backgroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          onPressed: _onBackPressed,
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+        ),
         title: const Text(
           'Chi tiết đơn hàng',
           style: TextStyle(

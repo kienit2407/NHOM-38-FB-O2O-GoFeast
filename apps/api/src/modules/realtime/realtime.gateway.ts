@@ -63,6 +63,7 @@ export class RealtimeGateway
 
             if (role === 'customer') client.join(this.roomCustomer(userId));
             if (role === 'driver') client.join(this.roomDriver(userId));
+            if (role === 'admin') client.join(this.roomAdmins());
 
             client.emit(RealtimeEvents.SOCKET_READY, {
                 ok: true,
@@ -113,6 +114,10 @@ export class RealtimeGateway
         return `order:${orderId}`;
     }
 
+    roomAdmins() {
+        return 'admin:global';
+    }
+
     emitToUser(userId: string, event: string, payload: any) {
         this.server.to(this.roomUser(userId)).emit(event, payload);
     }
@@ -137,6 +142,10 @@ export class RealtimeGateway
 
     emitToOrder(orderId: string, event: string, payload: any) {
         this.server.to(this.roomOrder(orderId)).emit(event, payload);
+    }
+
+    emitToAdmins(event: string, payload: any) {
+        this.server.to(this.roomAdmins()).emit(event, payload);
     }
 
     @SubscribeMessage(RealtimeEvents.MERCHANT_ROOM_JOIN)

@@ -113,6 +113,7 @@ import { DineInModule } from '../dinein/dine-in.module';
         MerchantStatisticsService,
 
         CustomerOrderQueryService
-    ]
+    ],
+    exports: [OrderLifecycleService],
 })
 export class OrdersModule { }

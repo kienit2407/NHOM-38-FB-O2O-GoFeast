@@ -278,7 +278,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
       if (!mounted) return;
 
       final user = ref.read(authViewModelProvider).valueOrNull;
-      final draft =
+      var draft =
           checkoutDraftFromAuth(user) ??
           const CheckoutDeliveryDraft(
             lat: 0,
@@ -288,6 +288,27 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
             receiverPhone: '',
             addressNote: '',
           );
+
+      var addrState = ref.read(addressControllerProvider);
+      if (addrState.current == null && !addrState.didLoad) {
+        await ref.read(addressControllerProvider.notifier).load();
+        if (!mounted) return;
+        addrState = ref.read(addressControllerProvider);
+      }
+
+      if (draft.address.trim().isEmpty || draft.lat == 0 || draft.lng == 0) {
+        final current = addrState.current ?? addrState.deviceLocation;
+        if (current != null) {
+          draft = CheckoutDeliveryDraft(
+            lat: current.lat,
+            lng: current.lng,
+            address: (current.address ?? '').trim(),
+            receiverName: (current.receiverName ?? user?.fullName ?? '').trim(),
+            receiverPhone: (current.receiverPhone ?? user?.phone ?? '').trim(),
+            addressNote: (current.deliveryNote ?? '').trim(),
+          );
+        }
+      }
 
       if (draft.address.trim().isEmpty || draft.lat == 0 || draft.lng == 0) {
         await showCheckoutErrorDialog(

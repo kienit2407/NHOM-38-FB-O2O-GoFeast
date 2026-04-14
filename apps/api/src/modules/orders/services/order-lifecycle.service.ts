@@ -71,6 +71,8 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         etaAt?: string | null;
     }) {
         const orderId = String(params.order._id);
+        const orderNumber = params.order?.order_number ?? null;
+        const orderType = params.order?.order_type ?? null;
         const merchantId = String(params.order.merchant_id);
         const customerUserId = String(params.order.customer_id);
         const driverId = params.order.driver_id ? String(params.order.driver_id) : null;
@@ -118,7 +120,23 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
 
         this.realtimeGateway.emitToOrder(orderId, 'order:status:changed', {
             orderId,
+            orderNumber,
+            orderType,
             status: params.status,
+            driverId,
+            message: params.message,
+            etaMin: params.etaMin ?? null,
+            etaAt: params.etaAt ?? null,
+            updatedAt: nowIso,
+        });
+
+        this.realtimeGateway.emitToAdmins('admin:order:status', {
+            orderId,
+            orderNumber,
+            orderType,
+            status: params.status,
+            merchantId,
+            customerUserId,
             driverId,
             message: params.message,
             etaMin: params.etaMin ?? null,
@@ -298,6 +316,21 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
                 message: 'Có đơn mới chờ xác nhận',
             },
         );
+
+        this.realtimeGateway.emitToAdmins('admin:order:new', {
+            orderId: String(order._id),
+            orderNumber: order.order_number,
+            orderType: order.order_type,
+            status: order.status,
+            merchantId: String(order.merchant_id),
+            customerUserId: String(order.customer_id),
+            driverId: order.driver_id ? String(order.driver_id) : null,
+            paymentMethod: order.payment_method,
+            totalAmount: Number(order.total_amount ?? 0),
+            itemCount,
+            createdAt: nowIso,
+            message: 'Có đơn mới vừa tạo',
+        });
 
         order.status_history.push(
             this.buildHistory({
@@ -514,6 +547,7 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         }
 
         order.driver_id = this.oid(params.driverId, 'driverId');
+        order.status = OrderStatus.DRIVER_ASSIGNED;
         order.driver_assigned_at = new Date();
         order.driver_accept_deadline_at = null;
 
@@ -526,6 +560,12 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         );
 
         await order.save();
+
+        await this.emitOrderStatus({
+            order,
+            status: OrderStatus.DRIVER_ASSIGNED,
+            message: 'Đã có tài xế nhận đơn',
+        });
     }
 
     async onDispatchOfferExpired(params: {
@@ -860,6 +900,58 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
             note: dto.note,
             message: 'Đơn hàng đã hoàn tất',
         });
+
+        return order;
+    }
+
+    async adminForceCancelOrder(adminUserId: string, orderId: string, reason?: string) {
+        const order = await this.orderModel.findById(this.oid(orderId, 'orderId'));
+        if (!order) throw new NotFoundException('Order not found');
+
+        if (order.status === OrderStatus.CANCELLED) {
+            throw new BadRequestException('Order already cancelled');
+        }
+
+        if (order.status === OrderStatus.COMPLETED) {
+            throw new BadRequestException('Completed order cannot be force cancelled');
+        }
+
+        order.cancelled_by = 'system';
+        order.cancel_reason = reason ?? 'admin_force_cancelled';
+        order.driver_accept_deadline_at = null;
+
+        await this.setOrderStatus({
+            order,
+            status: OrderStatus.CANCELLED,
+            changedBy: adminUserId,
+            note: reason,
+            message: 'Đơn hàng đã bị huỷ bởi admin',
+        });
+
+        this.dispatchOfferService.cancelOffer(String(order._id), 'admin_force_cancelled');
+
+        this.realtimeGateway.emitToCustomer(String(order.customer_id), 'customer:order:cancelled', {
+            orderId: String(order._id),
+            status: 'cancelled',
+            cancelledBy: 'admin',
+            reason: reason ?? null,
+            message: 'Đơn hàng đã bị huỷ bởi quản trị viên',
+            updatedAt: new Date().toISOString(),
+        });
+
+        const merchant: any = await this.merchantModel
+            .findById(order.merchant_id)
+            .select('owner_user_id')
+            .lean();
+
+        if (merchant?.owner_user_id) {
+            await this.notificationsService.notifyMerchantOrderStatus({
+                userId: String(merchant.owner_user_id),
+                orderId: String(order._id),
+                status: OrderStatus.CANCELLED,
+                body: 'Đơn hàng đã bị huỷ bởi quản trị viên',
+            });
+        }
 
         return order;
     }
