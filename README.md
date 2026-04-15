@@ -1,4 +1,9 @@
 # FaB-O2O Super App
+# Nhóm 38
+## Thành Viên:
+- Võ Trung Kiên
+- Tống Thị Hồng Liên
+- Nguyễn Quang Vinh
 
 Nền tảng O2O gồm 5 ứng dụng chạy cùng một backend:
 - `api`: NestJS modular monolith
