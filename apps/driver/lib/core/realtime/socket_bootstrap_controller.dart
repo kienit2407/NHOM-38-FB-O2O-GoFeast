@@ -28,34 +28,23 @@ class SocketBootstrapController {
     await _socketService.init();
     await _socketService.connect();
 
-    _newOrderOfferSub ??= _socketService.newOrderOfferStream.listen((
-      data,
-    ) async {
+    _newOrderOfferSub ??= _socketService.newOrderOfferStream.listen((data) {
       print('[DRIVER BOOTSTRAP] newOrderOfferStream = $data');
-
-      final orderId = data['orderId']?.toString() ?? '';
-      final merchantName = data['merchantName']?.toString() ?? 'Đơn mới';
-      final body =
-          data['message']?.toString() ??
-          'Bạn vừa nhận được một đề nghị đơn hàng mới';
-
-      await _notificationService.showOrderNotification(
-        id: orderId.hashCode,
-        title: merchantName,
-        body: body,
-        payload: 'order:$orderId',
-      );
     });
 
     _orderStatusSub ??= _socketService.orderStatusStream.listen((data) async {
       print('[DRIVER BOOTSTRAP] orderStatusStream = $data');
+      final status = data['status']?.toString() ?? '';
+      if (status != 'cancelled') {
+        return;
+      }
+
       final orderId = data['orderId']?.toString() ?? '';
-      final body =
-          data['message']?.toString() ?? 'Đơn hàng vừa có cập nhật trạng thái';
+      final body = data['message']?.toString() ?? 'Đơn hàng đã bị huỷ';
 
       await _notificationService.showOrderNotification(
         id: orderId.hashCode ^ 999,
-        title: 'Cập nhật đơn hàng',
+        title: 'Đơn hàng đã bị huỷ',
         body: body,
         payload: 'order:$orderId',
       );

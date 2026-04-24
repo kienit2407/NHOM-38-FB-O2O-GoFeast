@@ -6,6 +6,7 @@ import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
 import 'package:customer/core/utils/global_loading.dart';
 import 'package:customer/features/auth/presentation/viewmodels/auth_providers.dart';
+import 'package:customer/features/dinein/data/models/dine_in_models.dart';
 import 'package:customer/features/home/presentation/pages/home_page.dart';
 import 'package:customer/features/dinein/presentation/pages/qr_scan_page.dart';
 import 'package:customer/features/notifications/presentation/pages/notifications_page.dart';
@@ -47,10 +48,10 @@ class _MainShellState extends ConsumerState<MainShell>
       // preload badge notification
       await ref.read(notificationControllerProvider.notifier).loadUnreadOnly();
 
-      // start socket
-      await ref.read(customerSocketBootstrapControllerProvider).start();
       //restore lại context bàn
       await ref.read(dineInSessionProvider.notifier).restore();
+      // start socket sau khi đã restore session để auth payload có dine_in_token mới nhất
+      await ref.read(customerSocketBootstrapControllerProvider).start();
     });
   }
 
@@ -116,19 +117,18 @@ class _MainShellState extends ConsumerState<MainShell>
     ProfilePage(),
   ];
 
-  Future<void> _openScanner(BuildContext context) async {
-    // TODO: thay QrScanPage bằng màn hình scan thật của bạn
-    final result = await Navigator.of(
-      context,
-    ).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
+  Future<void> _openScanner() async {
+    final result = await Navigator.of(context).push<DineInContext>(
+      MaterialPageRoute(builder: (_) => const QrScanPage()),
+    );
 
     if (!mounted) return;
 
-    if (result != null && result.isNotEmpty) {
-      // Bạn tự xử lý kết quả QR ở đây
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('QR: $result')));
+    if (result != null) {
+      await context.push(
+        '/merchant/${result.merchantId}',
+        extra: {'mode': 'dine_in', 'dineInContext': result},
+      );
     }
   }
 
@@ -175,7 +175,7 @@ class _MainShellState extends ConsumerState<MainShell>
                 return _pages[i];
               }),
             ),
-             PromotionPopupEntry(),
+            PromotionPopupEntry(),
           ],
         ),
       ),
@@ -274,7 +274,7 @@ class _MainShellState extends ConsumerState<MainShell>
                             onDestinationSelected: (i) async {
                               if (i == 2) {
                                 _isVisible = true;
-                                await _openScanner(context);
+                                await _openScanner();
                                 return;
                               }
 
@@ -363,7 +363,7 @@ class _MainShellState extends ConsumerState<MainShell>
                   left: 0,
                   right: 0,
                   bottom: bottomPadding + 2,
-                  child: _ScanButton(onTap: () => _openScanner(context)),
+                  child: _ScanButton(onTap: _openScanner),
                 ),
               ],
             ),

@@ -46,7 +46,6 @@ function FullscreenSpinner() {
 function AuthPagesGate() {
   const { accessToken, onboarding, bootstrap } = useMerchantAuth();
   const [ready, setReady] = useState(false);
-  useMerchantSocketBootstrap();
 
   useEffect(() => {
     (async () => {
@@ -249,6 +248,8 @@ function LandingGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useMerchantSocketBootstrap();
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

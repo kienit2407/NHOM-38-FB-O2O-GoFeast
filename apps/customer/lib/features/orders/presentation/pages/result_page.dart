@@ -116,7 +116,10 @@ class ResultPage extends StatelessWidget {
                     const SizedBox(height: 10),
                     _InfoRow(
                       label: 'Trạng thái đơn',
-                      value: _orderStatusLabel(result.status),
+                      value: _orderStatusLabel(
+                        result.status,
+                        isDineIn: result.dineIn != null,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     _InfoRow(
@@ -230,7 +233,7 @@ String _money(num v) {
   return '$outđ';
 }
 
-String _orderStatusLabel(String raw) {
+String _orderStatusLabel(String raw, {required bool isDineIn}) {
   switch (raw) {
     case 'pending':
       return 'Chờ xác nhận';
@@ -239,7 +242,7 @@ String _orderStatusLabel(String raw) {
     case 'preparing':
       return 'Đang chuẩn bị';
     case 'ready_for_pickup':
-      return 'Sẵn sàng lấy hàng';
+      return isDineIn ? 'Sẵn sàng phục vụ' : 'Sẵn sàng lấy hàng';
     case 'driver_assigned':
       return 'Đã có tài xế';
     case 'driver_arrived':

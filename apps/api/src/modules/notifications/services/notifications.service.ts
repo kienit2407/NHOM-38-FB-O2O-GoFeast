@@ -16,6 +16,23 @@ export class NotificationsService {
         private readonly model: Model<NotificationDocument>,
     ) { }
 
+    private resolveRecipientRole(
+        role?: string,
+    ): NotificationRecipientRole | undefined {
+        switch (role) {
+            case NotificationRecipientRole.CUSTOMER:
+                return NotificationRecipientRole.CUSTOMER;
+            case NotificationRecipientRole.DRIVER:
+                return NotificationRecipientRole.DRIVER;
+            case NotificationRecipientRole.MERCHANT:
+                return NotificationRecipientRole.MERCHANT;
+            case NotificationRecipientRole.ADMIN:
+                return NotificationRecipientRole.ADMIN;
+            default:
+                return undefined;
+        }
+    }
+
     async createOne(dto: CreateNotificationDto) {
         return this.model.create({
             user_id: new Types.ObjectId(dto.userId),
@@ -78,18 +95,22 @@ export class NotificationsService {
             },
         });
     }
-    async removeOne(userId: string, notificationId: string) {
+    async removeOne(userId: string, notificationId: string, role?: string) {
+        const recipientRole = this.resolveRecipientRole(role);
         const row = await this.model.findOneAndDelete({
             _id: new Types.ObjectId(notificationId),
             user_id: new Types.ObjectId(userId),
+            ...(recipientRole ? { recipient_role: recipientRole } : {}),
         });
 
         return { deleted: !!row };
     }
 
-    async clearAll(userId: string) {
+    async clearAll(userId: string, role?: string) {
+        const recipientRole = this.resolveRecipientRole(role);
         const res = await this.model.deleteMany({
             user_id: new Types.ObjectId(userId),
+            ...(recipientRole ? { recipient_role: recipientRole } : {}),
         });
 
         return {
@@ -165,11 +186,18 @@ export class NotificationsService {
         );
     }
 
-    async listMine(userId: string, page = 1, limit = 20, opts?: { excludePromotion?: boolean }) {
+    async listMine(
+        userId: string,
+        page = 1,
+        limit = 20,
+        opts?: { excludePromotion?: boolean; role?: string },
+    ) {
         const skip = (page - 1) * limit;
+        const recipientRole = this.resolveRecipientRole(opts?.role);
 
         const filter: any = {
             user_id: new Types.ObjectId(userId),
+            ...(recipientRole ? { recipient_role: recipientRole } : {}),
         };
 
         if (opts?.excludePromotion) {
@@ -188,10 +216,15 @@ export class NotificationsService {
         return { items, total, unread, page, limit };
     }
 
-    async getUnreadCount(userId: string, opts?: { excludePromotion?: boolean }) {
+    async getUnreadCount(
+        userId: string,
+        opts?: { excludePromotion?: boolean; role?: string },
+    ) {
+        const recipientRole = this.resolveRecipientRole(opts?.role);
         const filter: any = {
             user_id: new Types.ObjectId(userId),
             is_read: false,
+            ...(recipientRole ? { recipient_role: recipientRole } : {}),
         };
 
         if (opts?.excludePromotion) {
@@ -202,11 +235,13 @@ export class NotificationsService {
         return { unread };
     }
 
-    async markRead(userId: string, notificationId: string) {
+    async markRead(userId: string, notificationId: string, role?: string) {
+        const recipientRole = this.resolveRecipientRole(role);
         return this.model.findOneAndUpdate(
             {
                 _id: new Types.ObjectId(notificationId),
                 user_id: new Types.ObjectId(userId),
+                ...(recipientRole ? { recipient_role: recipientRole } : {}),
             },
             {
                 $set: {
@@ -218,11 +253,13 @@ export class NotificationsService {
         );
     }
 
-    async markAllRead(userId: string) {
+    async markAllRead(userId: string, role?: string) {
+        const recipientRole = this.resolveRecipientRole(role);
         const res = await this.model.updateMany(
             {
                 user_id: new Types.ObjectId(userId),
                 is_read: false,
+                ...(recipientRole ? { recipient_role: recipientRole } : {}),
             },
             {
                 $set: {
@@ -274,6 +311,7 @@ export class NotificationsService {
         imageUrl?: string;
         status: string;
         body?: string;
+        orderType?: string;
     }) {
         return this.createOne({
             userId: params.userId,
@@ -286,6 +324,7 @@ export class NotificationsService {
                 order_id: params.orderId,
                 order_number: params.orderNumber,
                 image_url: params.imageUrl,
+                order_type: params.orderType,
             },
         });
     }
@@ -349,6 +388,7 @@ export class NotificationsService {
         imageUrl?: string;
         status: string;
         body?: string;
+        orderType?: string;
     }) {
         return this.createOne({
             userId: params.userId,
@@ -361,6 +401,7 @@ export class NotificationsService {
                 order_id: params.orderId,
                 order_number: params.orderNumber,
                 image_url: params.imageUrl,
+                order_type: params.orderType,
             },
         });
     }

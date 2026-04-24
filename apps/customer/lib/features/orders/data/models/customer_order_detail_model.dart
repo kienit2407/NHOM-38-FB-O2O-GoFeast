@@ -176,6 +176,8 @@ class CustomerOrderDetail {
   final String orderNumber;
   final String status;
   final String statusLabel;
+  final String displayStatus;
+  final String displayStatusLabel;
   final String orderType;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -198,6 +200,8 @@ class CustomerOrderDetail {
     required this.orderNumber,
     required this.status,
     required this.statusLabel,
+    required this.displayStatus,
+    required this.displayStatusLabel,
     required this.orderType,
     required this.createdAt,
     required this.updatedAt,
@@ -222,6 +226,9 @@ class CustomerOrderDetail {
       orderNumber: (j['order_number'] ?? '').toString(),
       status: (j['status'] ?? '').toString(),
       statusLabel: (j['status_label'] ?? '').toString(),
+      displayStatus: (j['display_status'] ?? j['status'] ?? '').toString(),
+      displayStatusLabel: (j['display_status_label'] ?? j['status_label'] ?? '')
+          .toString(),
       orderType: (j['order_type'] ?? '').toString(),
       createdAt: DateTime.tryParse((j['created_at'] ?? '').toString()),
       updatedAt: DateTime.tryParse((j['updated_at'] ?? '').toString()),

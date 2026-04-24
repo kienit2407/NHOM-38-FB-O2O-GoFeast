@@ -109,12 +109,14 @@ export class OrderTrackingQueryService {
 
         const driverLatLng = this.extractLatLng(driverProfile?.current_location);
         const eta = this.computeEta(order);
+        const isDineIn = order.order_type === 'dine_in';
 
         return {
             order_id: String(order._id),
             order_number: order.order_number,
             status: order.status,
-            driver_assigned: Boolean(order.driver_id),
+            order_type: order.order_type,
+            driver_assigned: isDineIn ? false : Boolean(order.driver_id),
 
             eta_at: eta.eta_at,
             eta_min: eta.eta_min,
@@ -142,11 +144,13 @@ export class OrderTrackingQueryService {
                     avatar_url: driverUser.avatar_url ?? null,
                 },
 
-            customer_delivery: {
-                address: order.delivery_address?.address ?? null,
-                lat: deliveryLatLng.lat,
-                lng: deliveryLatLng.lng,
-            },
+            customer_delivery: isDineIn
+                ? null
+                : {
+                    address: order.delivery_address?.address ?? null,
+                    lat: deliveryLatLng.lat,
+                    lng: deliveryLatLng.lng,
+                },
 
             payment: {
                 method: order.payment_method,

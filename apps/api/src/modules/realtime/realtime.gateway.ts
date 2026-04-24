@@ -14,6 +14,7 @@ import { TokenService } from '../auth/services/token.service';
 import { DispatchOfferService } from './services/dispatch-offer.service';
 import type { AuthedSocket } from './types/authed-socket';
 import { RealtimeEvents, RealtimeNamespace } from './realtime.events';
+import { DineInSessionTokenService } from '../dinein/services/dinein-session-token.service';
 
 @Injectable()
 @WebSocketGateway({
@@ -28,6 +29,7 @@ export class RealtimeGateway
     constructor(
         private readonly tokenService: TokenService,
         private readonly dispatchOfferService: DispatchOfferService,
+        private readonly dineInTokenService: DineInSessionTokenService,
     ) {
         this.dispatchOfferService.attachGateway(this);
     }
@@ -38,43 +40,97 @@ export class RealtimeGateway
     async handleConnection(client: AuthedSocket) {
         try {
             const token = this.extractToken(client);
-            if (!token) {
+            const dineInToken = this.extractDineInToken(client);
+            if (token) {
+                const payload: any = await this.tokenService.verifyAccessToken(token);
+
+                const userId = (payload?.sub ?? payload?.userId ?? '').toString();
+                const role = (payload?.role ?? '').toString();
+                const aud = payload?.aud?.toString();
+
+                if (!userId || !role) {
+                    throw new UnauthorizedException('Invalid socket token payload');
+                }
+
+                client.user = {
+                    userId,
+                    role: role as any,
+                    aud,
+                    email: payload?.email ?? null,
+                };
+
+                client.join(this.roomUser(userId));
+
+                if (role === 'customer') client.join(this.roomCustomer(userId));
+                if (role === 'driver') client.join(this.roomDriver(userId));
+                if (role === 'admin') client.join(this.roomAdmins());
+
+                if (dineInToken) {
+                    const dineInTableSessionId = await this.tryJoinDineInSessionRoom(
+                        client,
+                        dineInToken,
+                    );
+                    if (dineInTableSessionId) {
+                        client.user.tableSessionId = dineInTableSessionId;
+                    }
+                }
+
+                client.emit(RealtimeEvents.SOCKET_READY, {
+                    ok: true,
+                    userId,
+                    role,
+                    tableSessionId: client.user.tableSessionId ?? null,
+                });
+                return;
+            }
+
+            if (!dineInToken) {
                 throw new UnauthorizedException('Missing socket token');
             }
 
-            const payload: any = await this.tokenService.verifyAccessToken(token);
-
-            const userId = (payload?.sub ?? payload?.userId ?? '').toString();
-            const role = (payload?.role ?? '').toString();
-            const aud = payload?.aud?.toString();
-
-            if (!userId || !role) {
-                throw new UnauthorizedException('Invalid socket token payload');
+            const payload = await this.dineInTokenService.verify(dineInToken);
+            const tableSessionId = payload?.table_session_id?.toString();
+            if (!tableSessionId) {
+                throw new UnauthorizedException('Invalid dine-in token payload');
             }
 
             client.user = {
-                userId,
-                role,
-                aud,
-                email: payload?.email ?? null,
+                userId: `dinein:${tableSessionId}`,
+                role: 'dine_in_guest',
+                aud: 'dine_in',
+                email: null,
+                tableSessionId,
             };
 
-            client.join(this.roomUser(userId));
-
-            if (role === 'customer') client.join(this.roomCustomer(userId));
-            if (role === 'driver') client.join(this.roomDriver(userId));
-            if (role === 'admin') client.join(this.roomAdmins());
+            client.join(this.roomDineInSession(tableSessionId));
 
             client.emit(RealtimeEvents.SOCKET_READY, {
                 ok: true,
-                userId,
-                role,
+                userId: client.user.userId,
+                role: client.user.role,
+                tableSessionId,
             });
         } catch (e) {
             client.emit(RealtimeEvents.SOCKET_ERROR, {
                 message: 'Unauthorized socket',
             });
             client.disconnect(true);
+        }
+    }
+
+    private async tryJoinDineInSessionRoom(
+        client: AuthedSocket,
+        dineInToken: string,
+    ): Promise<string | null> {
+        try {
+            const payload = await this.dineInTokenService.verify(dineInToken);
+            const tableSessionId = payload?.table_session_id?.toString();
+            if (!tableSessionId) return null;
+
+            client.join(this.roomDineInSession(tableSessionId));
+            return tableSessionId;
+        } catch {
+            return null;
         }
     }
 
@@ -89,6 +145,24 @@ export class RealtimeGateway
         const headerValue = client.handshake?.headers?.authorization;
         if (typeof headerValue === 'string' && headerValue.trim().length > 0) {
             return headerValue.replace(/^Bearer\s+/i, '').trim();
+        }
+
+        return null;
+    }
+
+    private extractDineInToken(client: AuthedSocket): string | null {
+        const authToken = client.handshake?.auth?.dineInToken;
+        if (typeof authToken === 'string' && authToken.trim().length > 0) {
+            return authToken.trim();
+        }
+
+        const headerValue = client.handshake?.headers?.['x-dine-in-token'];
+        if (Array.isArray(headerValue)) {
+            const first = headerValue.find((x) => typeof x === 'string' && x.trim().length > 0);
+            if (first) return String(first).trim();
+        }
+        if (typeof headerValue === 'string' && headerValue.trim().length > 0) {
+            return headerValue.trim();
         }
 
         return null;
@@ -112,6 +186,10 @@ export class RealtimeGateway
 
     roomOrder(orderId: string) {
         return `order:${orderId}`;
+    }
+
+    roomDineInSession(tableSessionId: string) {
+        return `dinein_session:${tableSessionId}`;
     }
 
     roomAdmins() {
@@ -142,6 +220,10 @@ export class RealtimeGateway
 
     emitToOrder(orderId: string, event: string, payload: any) {
         this.server.to(this.roomOrder(orderId)).emit(event, payload);
+    }
+
+    emitToDineInSession(tableSessionId: string, event: string, payload: any) {
+        this.server.to(this.roomDineInSession(tableSessionId)).emit(event, payload);
     }
 
     emitToAdmins(event: string, payload: any) {
@@ -177,6 +259,10 @@ export class RealtimeGateway
     ) {
         if (!client.user) {
             throw new UnauthorizedException('Unauthorized');
+        }
+
+        if (client.user.role === 'dine_in_guest') {
+            return { ok: false, message: 'Guest socket cannot join order room directly' };
         }
 
         const orderId = body?.orderId?.toString();

@@ -114,7 +114,7 @@ export class DispatchOfferService {
                 status: wave === 1 ? 'dispatch_searching' : 'dispatch_retrying',
                 message:
                     wave === 1
-                        ? 'Đơn đã được xác nhận, hệ thống đang tìm tài xế'
+                        ? 'Hệ thống đang tìm tài xế cho đơn này'
                         : `Đang thử tìm tài xế ở đợt ${wave}`,
                 updatedAt: nowIso,
                 ...offer.payload,

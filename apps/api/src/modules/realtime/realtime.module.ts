@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { RealtimeGateway } from './realtime.gateway';
 import { DispatchOfferService } from './services/dispatch-offer.service';
-import { AuthModule } from '../auth/auth.module';
+import { DineInModule } from '../dinein/dine-in.module';
 
 @Module({
+    imports: [forwardRef(() => DineInModule)],
     providers: [RealtimeGateway, DispatchOfferService],
     exports: [DispatchOfferService, RealtimeGateway],
 })

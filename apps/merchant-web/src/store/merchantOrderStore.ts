@@ -2,6 +2,8 @@
 import { create } from "zustand";
 import {
     merchantOrderService,
+    MerchantConfirmDineInCashResponse,
+    MerchantInitiateDineInPaymentResponse,
     MerchantOrderStatus,
     MerchantOrderType,
     MerchantOrderView,
@@ -37,6 +39,16 @@ interface MerchantOrderState {
     rejectOrder: (orderId: string, reason?: string) => Promise<MerchantOrderView | null>;
     preparingOrder: (orderId: string, note?: string) => Promise<MerchantOrderView | null>;
     readyForPickupOrder: (orderId: string, note?: string) => Promise<MerchantOrderView | null>;
+    retryDispatchOrder: (orderId: string, note?: string) => Promise<MerchantOrderView | null>;
+    initiateDineInPayment: (
+        orderId: string,
+        paymentMethod: "vnpay" | "momo",
+    ) => Promise<MerchantInitiateDineInPaymentResponse | null>;
+    confirmDineInCashPayment: (
+        orderId: string,
+        receivedAmount: number,
+        note?: string,
+    ) => Promise<MerchantConfirmDineInCashResponse | null>;
 
     upsertOrder: (order: MerchantOrderView) => void;
     reset: () => void;
@@ -193,6 +205,80 @@ export const useMerchantOrderStore = create<MerchantOrderState>((set, get) => ({
             set({
                 acting: false,
                 error: e?.message ?? "Cập nhật ready_for_pickup thất bại",
+            });
+            return null;
+        }
+    },
+
+    retryDispatchOrder: async (orderId: string, note?: string) => {
+        set({ acting: true, error: null });
+        try {
+            const data = await merchantOrderService.retryDispatch(orderId, note);
+            set((state) => ({
+                acting: false,
+                items: upsert(state.items, data),
+                selectedOrder:
+                    state.selectedOrder?.id === orderId ? data : state.selectedOrder,
+            }));
+            return data;
+        } catch (e: any) {
+            set({
+                acting: false,
+                error: e?.message ?? "Tìm tài xế thủ công thất bại",
+            });
+            return null;
+        }
+    },
+
+    initiateDineInPayment: async (
+        orderId: string,
+        paymentMethod: "vnpay" | "momo",
+    ) => {
+        set({ acting: true, error: null });
+        try {
+            const data = await merchantOrderService.initiateDineInPayment(
+                orderId,
+                paymentMethod,
+            );
+            set((state) => ({
+                acting: false,
+                items: upsert(state.items, data.order),
+                selectedOrder:
+                    state.selectedOrder?.id === orderId ? data.order : state.selectedOrder,
+            }));
+            return data;
+        } catch (e: any) {
+            set({
+                acting: false,
+                error: e?.message ?? "Khởi tạo thanh toán dine-in thất bại",
+            });
+            return null;
+        }
+    },
+
+    confirmDineInCashPayment: async (
+        orderId: string,
+        receivedAmount: number,
+        note?: string,
+    ) => {
+        set({ acting: true, error: null });
+        try {
+            const data = await merchantOrderService.confirmDineInCashPayment(
+                orderId,
+                receivedAmount,
+                note,
+            );
+            set((state) => ({
+                acting: false,
+                items: upsert(state.items, data.order),
+                selectedOrder:
+                    state.selectedOrder?.id === orderId ? data.order : state.selectedOrder,
+            }));
+            return data;
+        } catch (e: any) {
+            set({
+                acting: false,
+                error: e?.message ?? "Xác nhận thanh toán tiền mặt thất bại",
             });
             return null;
         }

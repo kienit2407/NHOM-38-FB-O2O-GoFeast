@@ -16,6 +16,7 @@ import { OptionalJwtAuthGuard } from 'src/modules/auth/guards/optional-jwt-auth.
 import { DineInCheckoutPreviewQueryDto } from '../dtos/dinein-checkout-preview.query.dto';
 import { DineInPlaceOrderDto } from '../dtos/dinein-place-order.dto';
 import { DineInCheckoutService } from '../services/dinein-checkout.service';
+import { PaymentMethod } from '../schemas/order.schema';
 
 @Controller('checkout/dine-in/public')
 @UseGuards(DineInSessionGuard, OptionalJwtAuthGuard)
@@ -46,7 +47,7 @@ export class PublicDineInCheckoutController {
     ) {
         const data = await this.svc.preview(this.userId(req.user), {
             table_session_id: dineIn.tableSessionId,
-            payment_method: q.payment_method,
+            payment_method: PaymentMethod.CASH,
             voucher_code: q.voucher_code,
         });
 
@@ -63,7 +64,6 @@ export class PublicDineInCheckoutController {
             this.userId((req as any).user),
             {
                 table_session_id: dineIn.tableSessionId,
-                payment_method: dto.payment_method,
                 voucher_code: dto.voucher_code,
                 order_note: dto.order_note,
             },

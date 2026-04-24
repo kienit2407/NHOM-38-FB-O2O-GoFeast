@@ -143,7 +143,7 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
 
   Future<void> _openMerchantReview() async {
     final detail = _detail;
-    final merchantId = detail?.merchant?.id?.trim();
+    final merchantId = detail?.merchant?.id.trim();
 
     if (detail == null || merchantId == null || merchantId.isEmpty) {
       if (!mounted) return;
@@ -174,7 +174,7 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
 
   Future<void> _openDriverReview() async {
     final detail = _detail;
-    final driverUserId = detail?.driver?.id?.trim();
+    final driverUserId = detail?.driver?.id.trim();
 
     if (detail == null || driverUserId == null || driverUserId.isEmpty) {
       if (!mounted) return;
@@ -300,8 +300,10 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
     switch (status) {
       case 'pending':
         return AppColor.warning;
+      case 'searching_driver':
       case 'merchant_notified':
       case 'dispatch_searching':
+      case 'dispatch_retrying':
       case 'confirmed':
       case 'driver_assigned':
       case 'driver_arrived':
@@ -316,35 +318,42 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
         return AppColor.success;
       case 'cancelled':
         return AppColor.danger;
+      case 'dispatch_expired':
+        return AppColor.warning;
       default:
         return AppColor.textSecondary;
     }
   }
 
-  String _statusTimelineLabel(String status) {
+  String _statusTimelineLabel(String status, String orderType) {
+    final isDineIn = orderType == 'dine_in';
+
     switch (status) {
       case 'pending':
         return 'Đã tạo đơn';
       case 'merchant_notified':
         return 'Đã báo quán';
       case 'dispatch_searching':
-        return 'Đang tìm tài xế';
+      case 'dispatch_retrying':
+        return isDineIn ? 'Đang xử lý đơn tại quán' : 'Đang tìm tài xế';
+      case 'dispatch_expired':
+        return isDineIn ? 'Đang xử lý đơn tại quán' : 'Chưa tìm được tài xế';
       case 'confirmed':
-        return 'Quán đã xác nhận';
+        return isDineIn ? 'Quán đã xác nhận' : 'Đơn đã được tiếp nhận';
       case 'preparing':
         return 'Quán đang chuẩn bị';
       case 'ready_for_pickup':
-        return 'Đơn sẵn sàng lấy';
+        return isDineIn ? 'Sẵn sàng phục vụ tại quán' : 'Đơn sẵn sàng lấy';
       case 'driver_assigned':
-        return 'Đã có tài xế';
+        return isDineIn ? 'Đang phục vụ tại quán' : 'Đã có tài xế';
       case 'driver_arrived':
-        return 'Tài xế đã tới quán';
+        return isDineIn ? 'Đơn đã được phục vụ' : 'Tài xế đã tới quán';
       case 'picked_up':
-        return 'Tài xế đã lấy món';
+        return isDineIn ? 'Món đã được nhận tại quán' : 'Tài xế đã lấy món';
       case 'delivering':
-        return 'Tài xế đang giao';
+        return isDineIn ? 'Đang phục vụ tại quán' : 'Tài xế đang giao';
       case 'delivered':
-        return 'Đã giao tới khách';
+        return isDineIn ? 'Đã phục vụ khách tại quán' : 'Đã giao tới khách';
       case 'completed':
         return 'Đơn hoàn thành';
       case 'cancelled':
@@ -354,14 +363,25 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
     }
   }
 
-  String _statusTimelineNote(String status, String? rawNote) {
+  String _statusTimelineNote(String status, String? rawNote, String orderType) {
+    final isDineIn = orderType == 'dine_in';
+
     switch (status) {
       case 'merchant_notified':
         return 'Hệ thống đã gửi thông báo đơn mới đến quán.';
       case 'dispatch_searching':
-        return 'Hệ thống đang tìm tài xế phù hợp cho đơn hàng.';
+      case 'dispatch_retrying':
+        return isDineIn
+            ? 'Quán đang tiếp nhận và xử lý đơn tại bàn.'
+            : 'Hệ thống đang tìm tài xế phù hợp cho đơn hàng.';
+      case 'dispatch_expired':
+        return isDineIn
+            ? 'Quán đang xử lý đơn tại bàn.'
+            : 'Hệ thống chưa tìm được tài xế phù hợp. Quán có thể thử tìm lại.';
       case 'driver_assigned':
-        return 'Một tài xế đã nhận đơn giao hàng của bạn.';
+        return isDineIn
+            ? 'Đơn của bạn đã được quán tiếp nhận phục vụ.'
+            : 'Một tài xế đã nhận đơn giao hàng của bạn.';
       case 'pending':
         return rawNote?.trim().isNotEmpty == true
             ? rawNote!.trim()
@@ -501,8 +521,11 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
                 children: [
                   _TopHeroCard(
                     orderNumber: detail.orderNumber,
-                    statusLabel: detail.statusLabel,
-                    statusColor: _statusColor(detail.status),
+                    statusLabel: detail.displayStatusLabel,
+                    orderTypeLabel: detail.orderType == 'dine_in'
+                        ? 'Tại quán'
+                        : 'Giao hàng',
+                    statusColor: _statusColor(detail.displayStatus),
                     createdAt: _formatDateTime(detail.createdAt),
                     totalAmount: _formatMoney(detail.totalAmount),
                   ),
@@ -518,9 +541,16 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
                             final isLast = i == displayedTimeline.length - 1;
                             return _TimelineItem(
                               isLast: isLast,
-                              title: _statusTimelineLabel(item.status),
+                              title: _statusTimelineLabel(
+                                item.status,
+                                detail.orderType,
+                              ),
                               time: _formatDateTime(item.changedAt),
-                              note: _statusTimelineNote(item.status, item.note),
+                              note: _statusTimelineNote(
+                                item.status,
+                                item.note,
+                                detail.orderType,
+                              ),
                               color: _statusColor(item.status),
                             );
                           }),
@@ -763,10 +793,11 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
                           label: 'Tạm tính',
                           value: _formatMoney(detail.subtotal),
                         ),
-                        _PriceRow(
-                          label: 'Phí giao hàng',
-                          value: _formatMoney(detail.deliveryFee),
-                        ),
+                        if (detail.orderType == 'delivery')
+                          _PriceRow(
+                            label: 'Phí giao hàng',
+                            value: _formatMoney(detail.deliveryFee),
+                          ),
                         if (detail.discounts.foodDiscount > 0)
                           _PriceRow(
                             label: 'Giảm giá món ăn',
@@ -894,6 +925,7 @@ class _TopHeroCard extends StatelessWidget {
   const _TopHeroCard({
     required this.orderNumber,
     required this.statusLabel,
+    required this.orderTypeLabel,
     required this.statusColor,
     required this.createdAt,
     required this.totalAmount,
@@ -901,6 +933,7 @@ class _TopHeroCard extends StatelessWidget {
 
   final String orderNumber;
   final String statusLabel;
+  final String orderTypeLabel;
   final Color statusColor;
   final String createdAt;
   final String totalAmount;
@@ -914,6 +947,7 @@ class _TopHeroCard extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
+        border: Border.all(color: statusColor.withOpacity(0.45), width: 1.1),
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
@@ -951,6 +985,26 @@ class _TopHeroCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                orderTypeLabel,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 14),
           Row(

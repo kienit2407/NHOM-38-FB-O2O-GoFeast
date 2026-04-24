@@ -9,6 +9,7 @@ export const RealtimeEvents = {
     CUSTOMER_ORDER_STATUS: 'customer:order:status',
     CUSTOMER_DRIVER_LOCATION: 'customer:driver:location',
     CUSTOMER_ORDER_CANCELLED: 'customer:order:cancelled',
+    CUSTOMER_DINEIN_SESSION: 'customer:dinein:session',
     CUSTOMER_PROMOTION_PUSH: 'customer:promotion:push',
     CUSTOMER_NOTIFICATION_NEW: 'customer:notification:new',
 
@@ -23,6 +24,7 @@ export const RealtimeEvents = {
     MERCHANT_ORDER_STATUS: 'merchant:order:status',
     MERCHANT_DISPATCH_EXPIRED: 'merchant:dispatch:expired',
     MERCHANT_DISPATCH_CANCELLED: 'merchant:dispatch:cancelled',
+    MERCHANT_TABLE_STATUS: 'merchant:table:status',
     MERCHANT_NOTIFICATION_NEW: 'merchant:notification:new',
 
     ADMIN_ORDER_NEW: 'admin:order:new',

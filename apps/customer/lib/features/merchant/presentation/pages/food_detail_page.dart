@@ -180,6 +180,7 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
     try {
       ref.invalidate(cartProvider(_cartParams));
       await ref.read(dineInSessionProvider.notifier).clearContext();
+      await ref.read(customerSocketServiceProvider).reconnectWithFreshToken();
 
       if (!mounted) return;
       context.go('/');
@@ -216,7 +217,6 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
 
         await repo.previewDineIn(
           tableSessionId: ctx.tableSessionId,
-          paymentMethod: CheckoutPaymentMethod.cash,
           voucherCode: null,
         );
 

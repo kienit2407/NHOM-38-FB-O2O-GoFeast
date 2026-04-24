@@ -47,6 +47,8 @@ export interface MerchantOrderView {
     order_number: string;
     order_type: MerchantOrderType;
     status: MerchantOrderStatus;
+    display_status?: string;
+    display_status_label?: string | null;
 
     customer: {
         id: string | null;
@@ -95,7 +97,35 @@ export interface MerchantOrderView {
         can_reject: boolean;
         can_preparing: boolean;
         can_ready_for_pickup: boolean;
+        can_manual_dispatch: boolean;
+        can_settle_payment: boolean;
     };
+}
+
+export interface MerchantOrderPaymentResult {
+    payment_id: string;
+    status: string;
+    method: string;
+    amount: number;
+}
+
+export interface MerchantOrderPaymentAction {
+    type: string;
+    url: string;
+}
+
+export interface MerchantInitiateDineInPaymentResponse {
+    order: MerchantOrderView;
+    payment: MerchantOrderPaymentResult | null;
+    payment_action: MerchantOrderPaymentAction | null;
+    already_paid: boolean;
+}
+
+export interface MerchantConfirmDineInCashResponse {
+    order: MerchantOrderView;
+    payment: MerchantOrderPaymentResult | null;
+    received_amount: number;
+    change_amount: number;
 }
 
 export interface MerchantOrderListResponse {
@@ -146,6 +176,33 @@ export const merchantOrderService = {
 
     async readyForPickup(orderId: string, note?: string): Promise<MerchantOrderView> {
         const res = await API.patch(`/merchant/orders/${orderId}/ready-for-pickup`, { note });
+        return res.data.data;
+    },
+
+    async retryDispatch(orderId: string, note?: string): Promise<MerchantOrderView> {
+        const res = await API.patch(`/merchant/orders/${orderId}/dispatch/retry`, { note });
+        return res.data.data;
+    },
+
+    async initiateDineInPayment(
+        orderId: string,
+        paymentMethod: "vnpay" | "momo",
+    ): Promise<MerchantInitiateDineInPaymentResponse> {
+        const res = await API.patch(`/merchant/orders/${orderId}/payments/initiate`, {
+            payment_method: paymentMethod,
+        });
+        return res.data.data;
+    },
+
+    async confirmDineInCashPayment(
+        orderId: string,
+        receivedAmount: number,
+        note?: string,
+    ): Promise<MerchantConfirmDineInCashResponse> {
+        const res = await API.patch(`/merchant/orders/${orderId}/payments/cash/confirm`, {
+            received_amount: receivedAmount,
+            note,
+        });
         return res.data.data;
     },
 };

@@ -12,7 +12,11 @@ class DriverNotificationRepository {
   }) async {
     final res = await _dio.dio.get(
       '/notifications/me',
-      queryParameters: {'page': page, 'limit': limit},
+      queryParameters: {
+        'page': page,
+        'limit': limit,
+        'exclude_promotion': true,
+      },
     );
 
     return DriverNotificationPage.fromJson(
@@ -33,7 +37,10 @@ class DriverNotificationRepository {
   }
 
   Future<int> unreadCount() async {
-    final res = await _dio.dio.get('/notifications/me/unread-count');
+    final res = await _dio.dio.get(
+      '/notifications/me/unread-count',
+      queryParameters: {'exclude_promotion': true},
+    );
     final data = (res.data['data'] as Map).cast<String, dynamic>();
     return (data['unread'] as num?)?.toInt() ?? 0;
   }

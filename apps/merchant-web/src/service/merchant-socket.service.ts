@@ -5,6 +5,7 @@ export type MerchantSocketEvent =
     | "socket:ready"
     | "merchant:order:new"
     | "merchant:order:status"
+    | "merchant:table:status"
     | "merchant:dispatch:expired"
     | "merchant:dispatch:cancelled"
     | "merchant:notification:new";

@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:customer/core/shared/contants/url_config.dart';
 import 'package:customer/core/storage/token_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 class CustomerSocketEvents {
@@ -12,6 +14,7 @@ class CustomerSocketEvents {
   static const dispatchSearching = 'customer:dispatch:searching';
   static const dispatchExpired = 'customer:dispatch:expired';
   static const orderCancelled = 'customer:order:cancelled';
+  static const dineInSession = 'customer:dinein:session';
   static const promotionPush = 'customer:promotion:push';
   static const joinOrderRoom = 'order:room:join';
   static const leaveOrderRoom = 'order:room:leave';
@@ -24,7 +27,6 @@ class CustomerSocketService {
   final TokenStorage _tokenStorage;
 
   io.Socket? _socket;
-  bool _initialized = false;
 
   final _orderStatusController =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -40,6 +42,8 @@ class CustomerSocketService {
   final _promotionPushController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _notificationNewController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _dineInSessionController =
       StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get promotionPushStream =>
@@ -57,22 +61,50 @@ class CustomerSocketService {
   Stream<bool> get connectionStream => _connectionController.stream;
   Stream<Map<String, dynamic>> get notificationNewStream =>
       _notificationNewController.stream;
+  Stream<Map<String, dynamic>> get dineInSessionStream =>
+      _dineInSessionController.stream;
 
   bool get isConnected => _socket?.connected == true;
 
+  Future<String?> _readDineInToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('active_dine_in_context_v1');
+      if (raw == null || raw.trim().isEmpty) return null;
+
+      final map = (jsonDecode(raw) as Map).cast<String, dynamic>();
+      final token = map['dine_in_token']?.toString().trim();
+      if (token == null || token.isEmpty) return null;
+      return token;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> init() async {
-    if (_initialized) return;
-    _initialized = true;
+    if (_socket != null) return;
 
     final token = await _tokenStorage.getAccessToken();
-    if (token == null || token.isEmpty) return;
+    final dineInToken = await _readDineInToken();
+    if ((token == null || token.isEmpty) &&
+        (dineInToken == null || dineInToken.isEmpty)) {
+      return;
+    }
+
+    final authPayload = <String, dynamic>{};
+    if (token != null && token.isNotEmpty) {
+      authPayload['token'] = token;
+    }
+    if (dineInToken != null && dineInToken.isNotEmpty) {
+      authPayload['dineInToken'] = dineInToken;
+    }
 
     _socket = io.io(
       '${UrlConfig.backendBaseUrl}/realtime',
       io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
-          .setAuth({'token': token})
+          .setAuth(authPayload)
           .enableReconnection()
           .setReconnectionAttempts(999999)
           .setReconnectionDelay(1000)
@@ -86,8 +118,6 @@ class CustomerSocketService {
   void _bindBaseEvents() {
     final s = _socket;
     if (s == null) return;
-
-    ;
     s.onConnect((_) {
       print('CUSTOMER SOCKET CONNECTED');
       _connectionController.add(true);
@@ -144,12 +174,18 @@ class CustomerSocketService {
         _notificationNewController.add(Map<String, dynamic>.from(data));
       }
     });
+    s.on(CustomerSocketEvents.dineInSession, (data) {
+      if (data is Map) {
+        _dineInSessionController.add(Map<String, dynamic>.from(data));
+      }
+    });
   }
 
   Future<void> connect() async {
     if (_socket == null) {
       await init();
     }
+    if (_socket == null) return;
     _socket?.connect();
   }
 
@@ -159,9 +195,26 @@ class CustomerSocketService {
 
   Future<void> reconnectWithFreshToken() async {
     final token = await _tokenStorage.getAccessToken();
-    if (_socket == null || token == null || token.isEmpty) return;
+    final dineInToken = await _readDineInToken();
+    if (_socket == null) {
+      await init();
+      _socket?.connect();
+      return;
+    }
 
-    _socket!.auth = {'token': token};
+    final authPayload = <String, dynamic>{};
+    if (token != null && token.isNotEmpty) {
+      authPayload['token'] = token;
+    }
+    if (dineInToken != null && dineInToken.isNotEmpty) {
+      authPayload['dineInToken'] = dineInToken;
+    }
+    if (authPayload.isEmpty) {
+      _socket!.disconnect();
+      return;
+    }
+
+    _socket!.auth = authPayload;
     _socket!
       ..disconnect()
       ..connect();
@@ -183,9 +236,9 @@ class CustomerSocketService {
     await _orderCancelledController.close();
     await _connectionController.close();
     await _notificationNewController.close();
+    await _dineInSessionController.close();
     await _promotionPushController.close();
     _socket?.dispose();
     _socket = null;
-    _initialized = false;
   }
 }

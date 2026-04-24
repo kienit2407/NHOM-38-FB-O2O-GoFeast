@@ -9,12 +9,6 @@ class CheckoutRepository {
   CheckoutRepository(this._dio);
   final DioClient _dio;
 
-  String _base(CheckoutParams params) {
-    return params.mode == CheckoutMode.delivery
-        ? '/checkout/delivery'
-        : '/checkout/dine-in';
-  }
-
   Future<CheckoutPreviewResponse> previewDelivery({
     required String merchantId,
     required double lat,
@@ -68,14 +62,12 @@ class CheckoutRepository {
 
   Future<CheckoutPreviewResponse> previewDineIn({
     required String tableSessionId,
-    CheckoutPaymentMethod paymentMethod = CheckoutPaymentMethod.cash,
     String? voucherCode,
   }) async {
     final res = await _dio.get(
       '/checkout/dine-in/public/preview',
       queryParameters: {
         'table_session_id': tableSessionId,
-        'payment_method': checkoutPaymentMethodToApi(paymentMethod),
         if (voucherCode != null && voucherCode.trim().isNotEmpty)
           'voucher_code': voucherCode.trim(),
       },
@@ -122,7 +114,6 @@ class CheckoutRepository {
 
   Future<PlaceOrderResponse> placeDineInOrder({
     required String tableSessionId,
-    required CheckoutPaymentMethod paymentMethod,
     String? voucherCode,
     String? orderNote,
   }) async {
@@ -130,7 +121,6 @@ class CheckoutRepository {
       '/checkout/dine-in/public/place-order',
       data: {
         'table_session_id': tableSessionId,
-        'payment_method': checkoutPaymentMethodToApi(paymentMethod),
         if (voucherCode != null && voucherCode.trim().isNotEmpty)
           'voucher_code': voucherCode.trim(),
         if (orderNote != null && orderNote.isNotEmpty) 'order_note': orderNote,
@@ -169,7 +159,6 @@ class CheckoutRepository {
 
     return previewDineIn(
       tableSessionId: params.tableSessionId,
-      paymentMethod: paymentMethod,
       voucherCode: voucherCode,
     );
   }
@@ -203,7 +192,6 @@ class CheckoutRepository {
 
     return placeDineInOrder(
       tableSessionId: params.tableSessionId,
-      paymentMethod: paymentMethod,
       voucherCode: voucherCode,
       orderNote: orderNote,
     );

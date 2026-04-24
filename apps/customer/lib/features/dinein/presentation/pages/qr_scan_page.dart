@@ -3,10 +3,10 @@ import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
 import 'package:customer/core/utils/checkout_error_ui.dart';
 import 'package:customer/core/utils/parse_table_qr.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -89,13 +89,11 @@ class _QrScanPageState extends ConsumerState<QrScanPage>
     try {
       final dineInCtrl = ref.read(dineInSessionProvider.notifier);
       final ctx = await dineInCtrl.enterTable(tableId: tableId);
+      await ref.read(customerSocketServiceProvider).reconnectWithFreshToken();
 
       if (!mounted) return;
 
-      context.go(
-        '/merchant/${ctx.merchantId}',
-        extra: {'mode': 'dine_in', 'dineInContext': ctx},
-      );
+      Navigator.of(context).pop(ctx);
     } catch (e) {
       _popped = false;
       _isEnteringTable = false;
@@ -128,9 +126,52 @@ class _QrScanPageState extends ConsumerState<QrScanPage>
   }
 
   Future<void> _debugEnterTable() async {
-    await _finishWithResult(
-      'http://localhost:4000/scan/table/69b58c7f8729bc5bde25de58',
+    if (_popped || _isEnteringTable) return;
+
+    final inputCtrl = TextEditingController();
+    final rawValue = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Debug vào bàn'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Nhập tableId (24 ký tự) hoặc dán URL QR bàn.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: inputCtrl,
+                autofocus: true,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: 'Ví dụ: 69b58c7f8729bc5bde25de58',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Huỷ'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(inputCtrl.text.trim()),
+              child: const Text('Vào bàn'),
+            ),
+          ],
+        );
+      },
     );
+
+    if (!mounted) return;
+    final value = rawValue?.trim() ?? '';
+    if (value.isEmpty) return;
+
+    await _finishWithResult(value);
   }
 
   Future<void> _pickQrFromGallery() async {
@@ -389,15 +430,16 @@ class _QrScanPageState extends ConsumerState<QrScanPage>
                         ),
                       ),
                     ),
-                  Positioned(
-                    left: 20,
-                    right: 20,
-                    bottom: 140,
-                    child: ElevatedButton(
-                      onPressed: _isEnteringTable ? null : _debugEnterTable,
-                      child: const Text('Debug vào bàn'),
+                  if (kDebugMode)
+                    Positioned(
+                      left: 20,
+                      right: 20,
+                      bottom: 140,
+                      child: ElevatedButton(
+                        onPressed: _isEnteringTable ? null : _debugEnterTable,
+                        child: const Text('Debug: nhập mã bàn'),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -533,8 +575,6 @@ class _GlassCircleButton extends StatelessWidget {
     );
   }
 }
-
-
 
 class _ScannerOverlayPainter extends CustomPainter {
   const _ScannerOverlayPainter({required this.scanRect});

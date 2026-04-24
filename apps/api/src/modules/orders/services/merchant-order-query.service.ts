@@ -6,7 +6,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
-import { Order, OrderDocument, OrderStatus } from '../schemas/order.schema';
+import { Order, OrderDocument, OrderStatus, OrderType } from '../schemas/order.schema';
 import {
     Merchant,
     MerchantDocument,
@@ -48,11 +48,93 @@ export class MerchantOrderQueryService {
     }
 
     private buildActions(order: any) {
+        const allowManualDispatchStatuses = [
+            OrderStatus.CONFIRMED,
+            OrderStatus.PREPARING,
+            OrderStatus.READY_FOR_PICKUP,
+        ];
+
+        const history = Array.isArray(order?.status_history) ? order.status_history : [];
+        let lastDispatchMarker: string | null = null;
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+            const s = String(history[i]?.status ?? '');
+            if (
+                s === 'dispatch_expired' ||
+                s === 'dispatch_searching' ||
+                s === 'dispatch_retrying'
+            ) {
+                lastDispatchMarker = s;
+                break;
+            }
+        }
+
+        const canManualDispatch =
+            order?.order_type === OrderType.DELIVERY &&
+            !order?.driver_id &&
+            allowManualDispatchStatuses.includes(order?.status) &&
+            lastDispatchMarker === 'dispatch_expired';
+
+        const canSettlePayment =
+            order?.order_type === OrderType.DINE_IN &&
+            ![OrderStatus.CANCELLED, OrderStatus.COMPLETED].includes(order?.status) &&
+            order?.payment_status !== 'paid';
+
+        const isDelivery = order?.order_type === OrderType.DELIVERY;
+        const isDineIn = order?.order_type === OrderType.DINE_IN;
+
         return {
-            can_confirm: order.status === OrderStatus.PENDING,
-            can_reject: order.status === OrderStatus.PENDING,
-            can_preparing: order.status === OrderStatus.CONFIRMED,
-            can_ready_for_pickup: order.status === OrderStatus.PREPARING,
+            can_confirm: isDineIn && order.status === OrderStatus.PENDING,
+            can_reject: isDineIn && order.status === OrderStatus.PENDING,
+            can_preparing:
+                (isDineIn && order.status === OrderStatus.CONFIRMED) ||
+                (isDelivery && order.status === OrderStatus.DRIVER_ASSIGNED),
+            can_ready_for_pickup:
+                order.status === OrderStatus.PREPARING &&
+                (isDineIn || isDelivery),
+            can_manual_dispatch: canManualDispatch,
+            can_settle_payment: canSettlePayment,
+        };
+    }
+
+    private getLastDispatchMarker(order: any): string | null {
+        const history = Array.isArray(order?.status_history) ? order.status_history : [];
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+            const status = String(history[i]?.status ?? '');
+            if (
+                status === 'dispatch_searching' ||
+                status === 'dispatch_retrying' ||
+                status === 'dispatch_expired'
+            ) {
+                return status;
+            }
+        }
+        return null;
+    }
+
+    private displayStatus(order: any) {
+        if (
+            order?.order_type === OrderType.DELIVERY &&
+            !order?.driver_id &&
+            ![OrderStatus.CANCELLED, OrderStatus.COMPLETED].includes(order?.status)
+        ) {
+            const marker = this.getLastDispatchMarker(order);
+            if (marker === 'dispatch_searching' || marker === 'dispatch_retrying') {
+                return {
+                    status: 'searching_driver',
+                    label: 'Đang tìm tài xế',
+                };
+            }
+            if (marker === 'dispatch_expired') {
+                return {
+                    status: 'dispatch_expired',
+                    label: 'Chưa tìm được tài xế',
+                };
+            }
+        }
+
+        return {
+            status: order.status,
+            label: null,
         };
     }
 
@@ -87,12 +169,15 @@ export class MerchantOrderQueryService {
     }
 
     private mapOrder(order: any, customer: any, driver: any) {
+        const display = this.displayStatus(order);
         return {
             id: String(order._id),
             order_id: String(order._id),
             order_number: order.order_number,
             order_type: order.order_type,
             status: order.status,
+            display_status: display.status,
+            display_status_label: display.label,
 
             customer: {
                 id: customer?._id ? String(customer._id) : null,

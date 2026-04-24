@@ -16,6 +16,7 @@ import { Product, ProductSchema } from '../merchants/schemas/product.schema';
 
 // nếu project bạn export từ barrel khác thì sửa lại path này
 import { TableSession, TableSessionSchema } from '../dinein/schemas';
+import { Table, TableSchema } from '../dinein/schemas/table.schema';
 
 import { GeoModule } from '../geo/geo.module';
 import { BenefitsModule } from '../benefits/benefits.module';
@@ -65,6 +66,7 @@ import { DineInModule } from '../dinein/dine-in.module';
             { name: Merchant.name, schema: MerchantSchema },
             { name: Product.name, schema: ProductSchema },
             { name: TableSession.name, schema: TableSessionSchema },
+            { name: Table.name, schema: TableSchema },
 
             // thêm
             { name: DriverProfile.name, schema: DriverProfileSchema },

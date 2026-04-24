@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { JwtModule } from '@nestjs/jwt';
 
@@ -14,6 +14,7 @@ import { DineInSessionGuard } from './guards/dinein-session.guard';
 import { PublicDineInService } from './services/public-dinein.service';
 
 import { Merchant, MerchantSchema } from '../merchants/schemas';
+import { RealtimeModule } from '../realtime/realtime.module';
 
 @Module({
     imports: [
@@ -23,6 +24,7 @@ import { Merchant, MerchantSchema } from '../merchants/schemas';
             { name: TableSession.name, schema: TableSessionSchema },
             { name: Merchant.name, schema: MerchantSchema },
         ]),
+        forwardRef(() => RealtimeModule),
     ],
     controllers: [
         MerchantTablesController,

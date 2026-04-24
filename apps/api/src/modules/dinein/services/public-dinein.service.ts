@@ -1,5 +1,7 @@
 import {
     BadRequestException,
+    Inject,
+    forwardRef,
     Injectable,
     NotFoundException,
 } from '@nestjs/common';
@@ -14,6 +16,8 @@ import {
     TableSessionStatus,
 } from '../schemas/table-session.schema';
 import { DineInSessionTokenService } from './dinein-session-token.service';
+import { RealtimeGateway } from 'src/modules/realtime/realtime.gateway';
+import { RealtimeEvents } from 'src/modules/realtime/realtime.events';
 
 @Injectable()
 export class PublicDineInService {
@@ -24,8 +28,10 @@ export class PublicDineInService {
         private readonly tableSessionModel: Model<TableSessionDocument>,
         @InjectModel(Merchant.name)
         private readonly merchantModel: Model<MerchantDocument>,
-        
+
         private readonly dineInTokenService: DineInSessionTokenService,
+        @Inject(forwardRef(() => RealtimeGateway))
+        private readonly realtimeGateway: RealtimeGateway,
     ) { }
 
     private oid(id: string, name = 'id') {
@@ -126,6 +132,29 @@ export class PublicDineInService {
         };
     }
 
+    private emitMerchantTableStatus(args: {
+        merchantId: string;
+        tableId: string;
+        tableNumber: string;
+        status: TableStatus;
+        tableSessionId?: string | null;
+        reason: string;
+    }) {
+        this.realtimeGateway.emitToMerchant(
+            args.merchantId,
+            RealtimeEvents.MERCHANT_TABLE_STATUS,
+            {
+                merchantId: args.merchantId,
+                tableId: args.tableId,
+                tableNumber: args.tableNumber,
+                status: args.status,
+                currentSessionId: args.tableSessionId ?? null,
+                reason: args.reason,
+                updatedAt: new Date().toISOString(),
+            },
+        );
+    }
+
     async enterTable(args: { tableId: string; guestName?: string | null }) {
         const table: any = await this.getTableOrThrow(args.tableId);
         const merchant: any = await this.getMerchantOrThrow(table.merchant_id);
@@ -190,6 +219,15 @@ export class PublicDineInService {
             merchant_id: String(merchant._id),
             table_id: String(table._id),
             table_session_id: String(session._id),
+        });
+
+        this.emitMerchantTableStatus({
+            merchantId: String(merchant._id),
+            tableId: String(table._id),
+            tableNumber: String(table.table_number ?? ''),
+            status: TableStatus.OCCUPIED,
+            tableSessionId: String(session._id),
+            reason: 'table_entered',
         });
 
         return this.buildPayload({

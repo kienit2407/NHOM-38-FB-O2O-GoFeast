@@ -12,7 +12,7 @@ import {
   User,
   MessageSquare,
 } from 'lucide-react';
-import { Select } from 'antd';
+import { Alert, InputNumber, Modal, QRCode, Radio, Select, Space, Typography } from 'antd';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -71,7 +71,7 @@ const statusMeta: Record<string, { label: string; color: string; icon: React.Ele
     icon: ChefHat,
   },
   ready_for_pickup: {
-    label: 'Sẵn sàng lấy',
+    label: 'Sẵn sàng',
     color: 'bg-success/10 text-success border-success',
     icon: CheckCircle2,
   },
@@ -110,6 +110,31 @@ const statusMeta: Record<string, { label: string; color: string; icon: React.Ele
     color: 'bg-destructive/10 text-destructive border-destructive',
     icon: XCircle,
   },
+  searching_driver: {
+    label: 'Đang tìm tài xế',
+    color: 'bg-primary/10 text-primary border-primary',
+    icon: Truck,
+  },
+  dispatch_expired: {
+    label: 'Chưa tìm được tài xế',
+    color: 'bg-warning/10 text-warning border-warning',
+    icon: Truck,
+  },
+};
+
+const isDineInOrder = (order: MerchantOrderView) => order.order_type === 'dine_in';
+
+const readyActionLabel = (order: MerchantOrderView) =>
+  isDineInOrder(order) ? 'Sẵn sàng phục vụ' : 'Sẵn sàng lấy món';
+
+const statusLabelByOrderType = (order: MerchantOrderView) => {
+  if (order.display_status_label) {
+    return order.display_status_label;
+  }
+  if (order.status === 'ready_for_pickup') {
+    return isDineInOrder(order) ? 'Sẵn sàng phục vụ' : 'Sẵn sàng lấy';
+  }
+  return (statusMeta[order.status] ?? statusMeta.pending).label;
 };
 
 function OrderCard({
@@ -118,6 +143,9 @@ function OrderCard({
   onReject,
   onPreparing,
   onReadyForPickup,
+  onManualDispatch,
+  onOpenPayment,
+  acting,
   onViewDetail,
 }: {
   order: MerchantOrderView;
@@ -125,9 +153,13 @@ function OrderCard({
   onReject: (order: MerchantOrderView) => void;
   onPreparing: (order: MerchantOrderView) => void;
   onReadyForPickup: (order: MerchantOrderView) => void;
+  onManualDispatch: (order: MerchantOrderView) => void;
+  onOpenPayment: (order: MerchantOrderView) => void;
+  acting: boolean;
   onViewDetail: (order: MerchantOrderView) => void;
 }) {
-  const status = statusMeta[order.status] ?? statusMeta.pending;
+  const visibleStatus = order.display_status ?? order.status;
+  const status = statusMeta[visibleStatus] ?? statusMeta[order.status] ?? statusMeta.pending;
   const StatusIcon = status.icon;
 
   return (
@@ -144,7 +176,7 @@ function OrderCard({
                 <span className="text-lg font-bold">#{order.order_number}</span>
                 <Badge variant="outline" className={status.color}>
                   <StatusIcon className="mr-1 h-3 w-3" />
-                  {status.label}
+                  {statusLabelByOrderType(order)}
                 </Badge>
               </div>
 
@@ -250,6 +282,7 @@ function OrderCard({
                 variant="outline"
                 className="flex-1 border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
                 onClick={() => onReject(order)}
+                disabled={acting}
               >
                 <XCircle className="mr-2 h-4 w-4" />
                 Từ chối
@@ -257,7 +290,7 @@ function OrderCard({
             )}
 
             {order.actions.can_confirm && (
-              <Button className="flex-1" onClick={() => onAccept(order)}>
+              <Button className="flex-1" onClick={() => onAccept(order)} disabled={acting}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Xác nhận
               </Button>
@@ -266,24 +299,78 @@ function OrderCard({
             {!order.actions.can_confirm &&
               !order.actions.can_reject &&
               order.actions.can_preparing && (
-                <Button className="w-full" onClick={() => onPreparing(order)}>
-                  <ChefHat className="mr-2 h-4 w-4" />
-                  Bắt đầu chuẩn bị
-                </Button>
+                <>
+                  <Button className="flex-1" onClick={() => onPreparing(order)} disabled={acting}>
+                    <ChefHat className="mr-2 h-4 w-4" />
+                    Bắt đầu chuẩn bị
+                  </Button>
+                  {order.actions.can_manual_dispatch && (
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => onManualDispatch(order)}
+                      disabled={acting}
+                    >
+                      <Truck className="mr-2 h-4 w-4" />
+                      Tìm tài xế lại
+                    </Button>
+                  )}
+                </>
               )}
 
             {!order.actions.can_confirm &&
               !order.actions.can_reject &&
               !order.actions.can_preparing &&
               order.actions.can_ready_for_pickup && (
+                <>
+                  <Button
+                    className="flex-1 bg-success hover:bg-success/90"
+                    onClick={() => onReadyForPickup(order)}
+                    disabled={acting}
+                  >
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    {readyActionLabel(order)}
+                  </Button>
+                  {order.actions.can_manual_dispatch && (
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => onManualDispatch(order)}
+                      disabled={acting}
+                    >
+                      <Truck className="mr-2 h-4 w-4" />
+                      Tìm tài xế lại
+                    </Button>
+                  )}
+                </>
+              )}
+
+            {!order.actions.can_confirm &&
+              !order.actions.can_reject &&
+              !order.actions.can_preparing &&
+              !order.actions.can_ready_for_pickup &&
+              order.actions.can_manual_dispatch && (
                 <Button
-                  className="w-full bg-success hover:bg-success/90"
-                  onClick={() => onReadyForPickup(order)}
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => onManualDispatch(order)}
+                  disabled={acting}
                 >
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Sẵn sàng lấy món
+                  <Truck className="mr-2 h-4 w-4" />
+                  Tìm tài xế lại
                 </Button>
               )}
+
+            {order.actions.can_settle_payment && (
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => onOpenPayment(order)}
+                disabled={acting}
+              >
+                Thanh toán
+              </Button>
+            )}
           </div>
         </div>
       </CardContent>
@@ -310,10 +397,18 @@ export default function OrdersPage() {
     rejectOrder,
     preparingOrder,
     readyForPickupOrder,
+    retryDispatchOrder,
+    initiateDineInPayment,
+    confirmDineInCashPayment,
+    acting,
   } = useMerchantOrderStore();
 
   const [rejectDialog, setRejectDialog] = useState<MerchantOrderView | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [paymentDialog, setPaymentDialog] = useState<MerchantOrderView | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'vnpay' | 'momo'>('cash');
+  const [cashReceived, setCashReceived] = useState<number | null>(null);
+  const [paymentQrUrl, setPaymentQrUrl] = useState<string | null>(null);
   const lastSocketEventAt = useMerchantSocketStore((s) => s.lastEventAt);
 
   useEffect(() => {
@@ -384,9 +479,92 @@ export default function OrdersPage() {
     await fetchOrders();
 
     toast({
-      title: 'Đơn đã sẵn sàng lấy',
-      description: `Đơn #${data.order_number} đã sẵn sàng để tài xế lấy`,
+      title: order.order_type === 'dine_in' ? 'Đơn đã sẵn sàng phục vụ' : 'Đơn đã sẵn sàng lấy',
+      description:
+        order.order_type === 'dine_in'
+          ? `Đơn #${data.order_number} đã sẵn sàng phục vụ tại quán`
+          : `Đơn #${data.order_number} đã sẵn sàng để tài xế lấy`,
     });
+  };
+
+  const handleManualDispatch = async (order: MerchantOrderView) => {
+    const data = await retryDispatchOrder(order.id);
+    if (!data) return;
+
+    await fetchOrders();
+
+    toast({
+      title: 'Đang tìm tài xế lại',
+      description: `Hệ thống đang thử tìm tài xế cho đơn #${data.order_number}`,
+    });
+  };
+
+  const openPaymentDialog = (order: MerchantOrderView) => {
+    setPaymentDialog(order);
+    setPaymentMethod(order.payment_method === 'momo' ? 'momo' : order.payment_method === 'vnpay' ? 'vnpay' : 'cash');
+    setCashReceived(order.total_amount);
+    setPaymentQrUrl(null);
+  };
+
+  const closePaymentDialog = () => {
+    setPaymentDialog(null);
+    setPaymentMethod('cash');
+    setCashReceived(null);
+    setPaymentQrUrl(null);
+  };
+
+  const handleCreateOnlinePayment = async () => {
+    if (!paymentDialog) return;
+    const method = paymentMethod === 'momo' ? 'momo' : 'vnpay';
+    const data = await initiateDineInPayment(paymentDialog.id, method);
+    if (!data) return;
+
+    await fetchOrders();
+    if (selectedOrder?.id === paymentDialog.id) {
+      await fetchOrderDetail(paymentDialog.id);
+    }
+
+    if (data.already_paid || !data.payment_action?.url) {
+      toast({
+        title: 'Đơn đã thanh toán',
+        description: `Đơn #${data.order.order_number} đã được thanh toán trước đó`,
+      });
+      closePaymentDialog();
+      return;
+    }
+
+    setPaymentQrUrl(data.payment_action.url);
+    toast({
+      title: 'Đã tạo mã QR thanh toán',
+      description: `Hiển thị QR cho khách thanh toán ${method.toUpperCase()}`,
+    });
+  };
+
+  const handleConfirmCashPayment = async () => {
+    if (!paymentDialog) return;
+    const received = Number(cashReceived ?? 0);
+    if (!Number.isFinite(received) || received < paymentDialog.total_amount) {
+      toast({
+        title: 'Số tiền chưa hợp lệ',
+        description: 'Tiền khách đưa phải lớn hơn hoặc bằng tổng tiền đơn',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const data = await confirmDineInCashPayment(paymentDialog.id, received);
+    if (!data) return;
+
+    await fetchOrders();
+    if (selectedOrder?.id === paymentDialog.id) {
+      await fetchOrderDetail(paymentDialog.id);
+    }
+
+    toast({
+      title: 'Đã hoàn tất thanh toán tiền mặt',
+      description: `Tiền thối khách: ${formatCurrency(data.change_amount)}`,
+    });
+    closePaymentDialog();
   };
 
   const confirmReject = async () => {
@@ -409,6 +587,9 @@ export default function OrdersPage() {
     setSelectedOrder(order);
     await fetchOrderDetail(order.id);
   };
+
+  const paymentTotal = paymentDialog?.total_amount ?? 0;
+  const cashChange = Number(cashReceived ?? 0) - paymentTotal;
 
   return (
     <div className="space-y-6">
@@ -467,7 +648,7 @@ export default function OrdersPage() {
           </TabsTrigger>
 
           <TabsTrigger value="ready_for_pickup">
-            Sẵn sàng lấy
+            Sẵn sàng
             {orderCounts.ready_for_pickup > 0 && (
               <Badge variant="secondary" className="ml-2">
                 {orderCounts.ready_for_pickup}
@@ -506,6 +687,9 @@ export default function OrdersPage() {
                   onReject={(o) => setRejectDialog(o)}
                   onPreparing={handlePreparing}
                   onReadyForPickup={handleReadyForPickup}
+                  onManualDispatch={handleManualDispatch}
+                  onOpenPayment={openPaymentDialog}
+                  acting={acting}
                   onViewDetail={openDetail}
                 />
               ))}
@@ -577,9 +761,15 @@ export default function OrdersPage() {
                   #{selectedOrder.order_number}
                   <Badge
                     variant="outline"
-                    className={(statusMeta[selectedOrder.status] ?? statusMeta.pending).color}
+                    className={
+                      (
+                        statusMeta[selectedOrder.display_status ?? selectedOrder.status] ??
+                        statusMeta[selectedOrder.status] ??
+                        statusMeta.pending
+                      ).color
+                    }
                   >
-                    {(statusMeta[selectedOrder.status] ?? statusMeta.pending).label}
+                    {statusLabelByOrderType(selectedOrder)}
                   </Badge>
                 </SheetTitle>
                 <SheetDescription>
@@ -683,11 +873,101 @@ export default function OrdersPage() {
                     <span>{formatCurrency(selectedOrder.total_amount)}</span>
                   </div>
                 </div>
+
+                {selectedOrder.actions.can_settle_payment && (
+                  <>
+                    <Separator />
+                    <Button onClick={() => openPaymentDialog(selectedOrder)} disabled={acting}>
+                      Thanh toán đơn tại quán
+                    </Button>
+                  </>
+                )}
               </div>
             </>
           )}
         </SheetContent>
       </Sheet>
+
+      <Modal
+        title={
+          paymentDialog
+            ? `Thanh toán đơn #${paymentDialog.order_number}`
+            : 'Thanh toán đơn tại quán'
+        }
+        open={!!paymentDialog}
+        onCancel={closePaymentDialog}
+        onOk={paymentMethod === 'cash' ? handleConfirmCashPayment : handleCreateOnlinePayment}
+        okText={paymentMethod === 'cash' ? 'Xác nhận tiền mặt' : paymentQrUrl ? 'Tạo lại QR' : 'Tạo QR thanh toán'}
+        cancelText="Đóng"
+        confirmLoading={acting}
+      >
+        {paymentDialog && (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Alert
+              type="info"
+              showIcon
+              message={`Tổng thanh toán: ${formatCurrency(paymentTotal)}`}
+            />
+
+            <div>
+              <div className="mb-2 text-sm font-medium">Phương thức</div>
+              <Radio.Group
+                value={paymentMethod}
+                onChange={(e) => {
+                  setPaymentMethod(e.target.value);
+                  setPaymentQrUrl(null);
+                }}
+              >
+                <Space direction="vertical">
+                  <Radio value="cash">Tiền mặt</Radio>
+                  <Radio value="vnpay">VNPay</Radio>
+                  <Radio value="momo">MoMo</Radio>
+                </Space>
+              </Radio.Group>
+            </div>
+
+            {paymentMethod === 'cash' ? (
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <div className="text-sm font-medium">Tiền khách đưa</div>
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={0}
+                  step={1000}
+                  value={cashReceived ?? undefined}
+                  onChange={(v) => setCashReceived(Number(v ?? 0))}
+                  formatter={(value) =>
+                    `${value ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+                  }
+                  parser={(value) =>
+                    Number((value ?? '').toString().replace(/[^\d]/g, ''))
+                  }
+                />
+                <Typography.Text type={cashChange < 0 ? 'danger' : 'success'}>
+                  Tiền thối: {formatCurrency(Math.max(0, cashChange))}
+                </Typography.Text>
+              </Space>
+            ) : (
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Typography.Text type="secondary">
+                  Bấm &quot;{paymentQrUrl ? 'Tạo lại QR' : 'Tạo QR thanh toán'}&quot; để lấy mã QR cho khách quét.
+                </Typography.Text>
+                {paymentQrUrl && (
+                  <Space direction="vertical" align="center" style={{ width: '100%' }}>
+                    <QRCode value={paymentQrUrl} size={220} />
+                    <Typography.Text
+                      copyable={{ text: paymentQrUrl }}
+                      ellipsis={{ tooltip: paymentQrUrl }}
+                      style={{ maxWidth: 320 }}
+                    >
+                      {paymentQrUrl}
+                    </Typography.Text>
+                  </Space>
+                )}
+              </Space>
+            )}
+          </Space>
+        )}
+      </Modal>
     </div>
   );
 }

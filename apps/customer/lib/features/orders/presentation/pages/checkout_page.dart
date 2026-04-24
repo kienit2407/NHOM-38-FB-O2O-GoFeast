@@ -5,13 +5,11 @@ import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
 import 'package:customer/core/utils/checkout_error_ui.dart';
 import 'package:customer/features/auth/presentation/viewmodels/auth_providers.dart';
-import 'package:customer/features/cart/data/models/cart_models.dart';
 import 'package:customer/features/cart/data/repositories/cart_repository.dart';
 import 'package:customer/features/merchant/presentation/pages/merchant_detail_page.dart';
 import 'package:customer/features/orders/data/models/checkout_delivery_draft.dart';
 import 'package:customer/features/orders/data/models/checkout_models.dart';
 import 'package:customer/features/orders/presentation/pages/payment_webview_page.dart';
-import 'package:customer/features/orders/presentation/pages/result_page.dart';
 import 'package:customer/features/orders/presentation/viewmodels/checkout_state.dart';
 import 'package:customer/features/promotion/data/models/promotion_models.dart';
 import 'package:flutter/cupertino.dart';
@@ -501,12 +499,13 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
 
                       const SizedBox(height: 12),
 
-                      _PaymentCard(
-                        method: state.paymentMethod,
-                        onTap: () => _openPaymentSheet(state.paymentMethod),
-                      ),
-
-                      const SizedBox(height: 12),
+                      if (preview.isDelivery) ...[
+                        _PaymentCard(
+                          method: state.paymentMethod,
+                          onTap: () => _openPaymentSheet(state.paymentMethod),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
 
                       _PricingCard(
                         pricing: preview.pricing,
@@ -561,9 +560,7 @@ class _InitialBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Center(
-        child: CircularProgressIndicator.adaptive(),
-      );
+      return const Center(child: CircularProgressIndicator.adaptive());
     }
 
     return Center(
@@ -984,9 +981,7 @@ class _SavedVoucherPickerSheet extends ConsumerWidget {
     final items = _filterSavedVouchersForCheckout(st.items, preview);
 
     if (st.isLoading && st.items.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator.adaptive(),
-      );
+      return const Center(child: CircularProgressIndicator.adaptive());
     }
 
     return Column(
@@ -1451,7 +1446,7 @@ class _CheckoutVoucherCard extends StatelessWidget {
                     const Icon(
                       Iconsax.arrow_right_1_copy,
                       size: 16,
-                      color: AppColor.primary
+                      color: AppColor.primary,
                       // Thường mũi tên cùng màu với chữ sẽ đẹp hơn
                       // color: AppColor.primary,
                     ),
@@ -1647,15 +1642,10 @@ class _CardBox extends StatelessWidget {
 }
 
 class _PriceRow extends StatelessWidget {
-  const _PriceRow({
-    required this.label,
-    required this.value,
-    this.help = false,
-  });
+  const _PriceRow({required this.label, required this.value});
 
   final String label;
   final String value;
-  final bool help;
 
   @override
   Widget build(BuildContext context) {

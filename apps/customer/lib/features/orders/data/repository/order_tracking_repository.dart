@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 
 class TrackingParty {
   final String id;
@@ -50,6 +49,7 @@ class TrackingOrder {
   final String id;
   final String orderNumber;
   final String status;
+  final String orderType;
   final bool driverAssigned;
   final int? etaMin;
   final String? etaAt;
@@ -61,6 +61,7 @@ class TrackingOrder {
     required this.id,
     required this.orderNumber,
     required this.status,
+    required this.orderType,
     required this.driverAssigned,
     required this.merchant,
     required this.delivery,
@@ -70,12 +71,14 @@ class TrackingOrder {
   });
 
   bool get canCancel => status == 'pending' && !driverAssigned;
+  bool get isDineIn => orderType == 'dine_in';
 
   factory TrackingOrder.fromJson(Map<String, dynamic> j) {
     return TrackingOrder(
       id: (j['order_id'] ?? j['id'] ?? '').toString(),
       orderNumber: (j['order_number'] ?? '').toString(),
       status: (j['status'] ?? '').toString(),
+      orderType: (j['order_type'] ?? 'delivery').toString(),
       driverAssigned: j['driver_assigned'] == true,
       etaMin: (j['eta_min'] as num?)?.toInt(),
       etaAt: j['eta_at']?.toString(),
@@ -88,7 +91,9 @@ class TrackingOrder {
               Map<String, dynamic>.from(j['driver'] as Map),
             ),
       delivery: TrackingDeliveryInfo.fromJson(
-        Map<String, dynamic>.from(j['customer_delivery'] ?? const {}),
+        Map<String, dynamic>.from(
+          j['customer_delivery'] ?? const <String, dynamic>{},
+        ),
       ),
     );
   }

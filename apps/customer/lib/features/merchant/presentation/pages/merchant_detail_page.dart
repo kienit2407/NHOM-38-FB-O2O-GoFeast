@@ -255,7 +255,6 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
 
         await repo.previewDineIn(
           tableSessionId: tableSessionId,
-          paymentMethod: CheckoutPaymentMethod.cash,
           voucherCode: null,
         );
 
@@ -389,6 +388,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     try {
       ref.invalidate(cartProvider(_cartParams));
       await ref.read(dineInSessionProvider.notifier).clearContext();
+      await ref.read(customerSocketServiceProvider).reconnectWithFreshToken();
 
       if (!mounted) return;
       context.go('/');

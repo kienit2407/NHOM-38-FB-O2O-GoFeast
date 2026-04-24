@@ -13,6 +13,7 @@ import { PromotionEngineService } from './promotion-engine.service';
 import { OrderFactoryService } from './order-factory.service';
 import { Cart, CartDocument, CartStatus } from 'src/modules/carts/schemas';
 import { CheckoutPaymentService } from './checkout-payment.service';
+import { OrderLifecycleService } from './order-lifecycle.service';
 
 @Injectable()
 export class DineInCheckoutService {
@@ -33,6 +34,7 @@ export class DineInCheckoutService {
 
         //  3. Dịch chuyển checkoutPayment xuống dưới cùng với các Service khác (không dùng @InjectModel cho Service)
         private readonly checkoutPayment: CheckoutPaymentService,
+        private readonly orderLifecycleService: OrderLifecycleService,
         private readonly pricingService: CheckoutPricingService,
         private readonly promotionEngine: PromotionEngineService,
         private readonly orderFactory: OrderFactoryService,
@@ -87,7 +89,7 @@ export class DineInCheckoutService {
     }
 
     async preview(userId: string | null, q: DineInCheckoutPreviewQueryDto) {
-        const paymentMethod = q.payment_method ?? PaymentMethod.CASH;
+        const paymentMethod = PaymentMethod.CASH;
         const session: any = await this.getTableSession(q.table_session_id);
         const merchant: any = await this.getMerchant(String(session.merchant_id));
         const cart = await this.getActiveDineInCart(q.table_session_id, String(session.merchant_id));
@@ -168,10 +170,11 @@ export class DineInCheckoutService {
         meta?: { clientIp?: string | null },
     ) {
         const session: any = await this.getTableSession(dto.table_session_id);
+        const paymentMethod = PaymentMethod.CASH;
 
         const preview = await this.preview(userId, {
             table_session_id: dto.table_session_id,
-            payment_method: dto.payment_method,
+            payment_method: paymentMethod,
             voucher_code: dto.voucher_code,
         });
 
@@ -187,7 +190,7 @@ export class DineInCheckoutService {
             cart,
             dto: {
                 order_note: dto.order_note,
-                payment_method: dto.payment_method,
+                payment_method: paymentMethod,
             },
             preview,
         });
@@ -210,6 +213,8 @@ export class DineInCheckoutService {
             }
 
             await this.orderFactory.clearCartByOrder(order);
+
+            await this.orderLifecycleService.activateDineInOrder(String(order._id));
         }
 
         return {
@@ -226,7 +231,7 @@ export class DineInCheckoutService {
                 : {
                     payment_id: null,
                     status: 'pending',
-                    method: dto.payment_method,
+                    method: paymentMethod,
                     amount: preview.pricing.total_amount,
                 },
             payment_action: paymentAction,

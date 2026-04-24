@@ -83,9 +83,7 @@ class MyDraftCartListResponse {
     return MyDraftCartListResponse(
       items: ((j['items'] as List?) ?? const [])
           .map(
-            (e) => MyDraftCartItem.fromJson(
-              (e as Map).cast<String, dynamic>(),
-            ),
+            (e) => MyDraftCartItem.fromJson((e as Map).cast<String, dynamic>()),
           )
           .toList(),
       nextCursor: j['next_cursor']?.toString(),
@@ -122,6 +120,9 @@ class MyOrderListItem {
   final String orderNumber;
   final String status;
   final String statusLabel;
+  final String displayStatus;
+  final String displayStatusLabel;
+  final String orderType;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final int totalAmount;
@@ -137,6 +138,9 @@ class MyOrderListItem {
     required this.orderNumber,
     required this.status,
     required this.statusLabel,
+    required this.displayStatus,
+    required this.displayStatusLabel,
+    required this.orderType,
     required this.createdAt,
     required this.updatedAt,
     required this.totalAmount,
@@ -154,6 +158,10 @@ class MyOrderListItem {
       orderNumber: (j['order_number'] ?? '').toString(),
       status: (j['status'] ?? '').toString(),
       statusLabel: (j['status_label'] ?? '').toString(),
+      displayStatus: (j['display_status'] ?? j['status'] ?? '').toString(),
+      displayStatusLabel: (j['display_status_label'] ?? j['status_label'] ?? '')
+          .toString(),
+      orderType: (j['order_type'] ?? 'delivery').toString(),
       createdAt: DateTime.tryParse((j['created_at'] ?? '').toString()),
       updatedAt: DateTime.tryParse((j['updated_at'] ?? '').toString()),
       totalAmount: (j['total_amount'] as num?)?.toInt() ?? 0,

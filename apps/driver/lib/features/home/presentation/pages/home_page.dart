@@ -164,9 +164,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           .fetchCurrentOrder();
       if (current == null) return;
 
-      ref.read(driverOfferControllerProvider.notifier).restoreCurrentOrder(
-            current,
-          );
+      ref
+          .read(driverOfferControllerProvider.notifier)
+          .restoreCurrentOrder(current);
 
       _trackingCtrl.bindOrder(
         orderId: current['orderId']?.toString() ?? '',
@@ -183,9 +183,9 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Future<List<String>> _uploadProofFiles(List<File> files) async {
     try {
-      return await ref.read(driverOrderRepositoryProvider).uploadProofImages(
-            files,
-          );
+      return await ref
+          .read(driverOrderRepositoryProvider)
+          .uploadProofImages(files);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -202,8 +202,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     final urls = await _uploadProofFiles(files);
     if (urls.isEmpty) return;
 
-    final current =
-        ref.read(driverDeliveryTrackingControllerProvider).proofImages;
+    final current = ref
+        .read(driverDeliveryTrackingControllerProvider)
+        .proofImages;
     _trackingCtrl.setProofImages([...current, ...urls]);
   }
 
@@ -344,9 +345,9 @@ class _HomePageState extends ConsumerState<HomePage> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Không lấy được vị trí: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Không lấy được vị trí: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -436,8 +437,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
     final sinDLat = math.sin(dLat / 2);
     final sinDLng = math.sin(dLng / 2);
-    final aa = sinDLat * sinDLat +
-        sinDLng * sinDLng * math.cos(lat1) * math.cos(lat2);
+    final aa =
+        sinDLat * sinDLat + sinDLng * sinDLng * math.cos(lat1) * math.cos(lat2);
     final c = 2 * math.asin(math.sqrt(aa));
     return earthRadius * c;
   }
@@ -487,10 +488,12 @@ class _HomePageState extends ConsumerState<HomePage> {
       final targetKey = '${target.latitude},${target.longitude},$status';
 
       final now = DateTime.now();
-      final recentlyFetched = _lastRouteFetchAt != null &&
+      final recentlyFetched =
+          _lastRouteFetchAt != null &&
           now.difference(_lastRouteFetchAt!) < const Duration(seconds: 12);
 
-      final movedLittle = _lastRouteOrigin != null &&
+      final movedLittle =
+          _lastRouteOrigin != null &&
           _distanceMeters(origin, _lastRouteOrigin!) < 40;
 
       if (!force &&
@@ -500,7 +503,9 @@ class _HomePageState extends ConsumerState<HomePage> {
         return;
       }
 
-      final res = await ref.read(driverOrderRepositoryProvider).fetchRoute(
+      final res = await ref
+          .read(driverOrderRepositoryProvider)
+          .fetchRoute(
             originLat: driverLat,
             originLng: driverLng,
             destinationLat: targetLat,
@@ -518,10 +523,9 @@ class _HomePageState extends ConsumerState<HomePage> {
       } else {
         final rawPoints = res['route_points'];
         if (rawPoints is List) {
-          points = rawPoints
-              .whereType<List>()
-              .where((e) => e.length >= 2)
-              .map((e) {
+          points = rawPoints.whereType<List>().where((e) => e.length >= 2).map((
+            e,
+          ) {
             final lng = (e[0] as num).toDouble();
             final lat = (e[1] as num).toDouble();
             return LatLng(lat, lng);
@@ -635,9 +639,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         Marker(
           markerId: const MarkerId('merchant_marker'),
           position: _merchantMarker!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueRed,
-          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: const InfoWindow(title: 'Điểm lấy hàng'),
         ),
       );
@@ -675,27 +677,34 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildStatusChip(bool isOnline) {
-    final bg = isOnline
-        ? AppColor.success.withOpacity(.12)
-        : AppColor.warning.withOpacity(.12);
-
-    final fg = isOnline ? AppColor.success : AppColor.warning;
-
+  Widget _buildInfoChip({
+    required String label,
+    required Color bg,
+    required Color fg,
+  }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        isOnline ? 'Đang nhận chuyến' : 'Tạm nghỉ',
-        style: TextStyle(
-          color: fg,
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
-        ),
+        label,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: 12),
       ),
+    );
+  }
+
+  Widget _buildStatusChip(bool isOnline) {
+    final bg = isOnline
+        ? AppColor.success.withOpacity(.12)
+        : AppColor.warning.withOpacity(.12);
+    final fg = isOnline ? AppColor.success : AppColor.warning;
+
+    return _buildInfoChip(
+      label: isOnline ? 'Đang nhận chuyến' : 'Tạm nghỉ',
+      bg: bg,
+      fg: fg,
     );
   }
 
@@ -823,7 +832,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                 children: [
                   Expanded(
                     child: Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(20),
@@ -854,30 +866,17 @@ class _HomePageState extends ConsumerState<HomePage> {
                                     color: AppColor.textPrimary,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
-                                Row(
+                                const SizedBox(height: 7),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 6,
                                   children: [
                                     _buildStatusChip(isOnline),
                                     if (trackingState.hasOrder) ...[
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 5,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppColor.primaryLight,
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                        ),
-                                        child: const Text(
-                                          'Đang có chuyến',
-                                          style: TextStyle(
-                                            color: AppColor.primary,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
+                                      _buildInfoChip(
+                                        label: 'Đang có chuyến',
+                                        bg: AppColor.primaryLight,
+                                        fg: AppColor.primary,
                                       ),
                                     ],
                                   ],
@@ -896,8 +895,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                         icon: isOnline
                             ? CupertinoIcons.power
                             : CupertinoIcons.play_fill,
-                        iconColor:
-                            isOnline ? AppColor.success : AppColor.warning,
+                        iconColor: isOnline
+                            ? AppColor.success
+                            : AppColor.warning,
                         loading: live.isUpdatingAvailability,
                         onTap: live.isUpdatingAvailability
                             ? null

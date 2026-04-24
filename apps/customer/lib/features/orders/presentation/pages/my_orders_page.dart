@@ -522,6 +522,8 @@ class _OrderCard extends StatelessWidget {
                     Row(
                       children: [
                         _StatusChip(label: item.statusLabel),
+                        const SizedBox(width: 8),
+                        _OrderTypeChip(orderType: item.orderType),
                         if (item.etaMin != null) ...[
                           const SizedBox(width: 8),
                           Text(
@@ -763,11 +765,17 @@ class _ReviewCard extends StatelessWidget {
                     children: [
                       Text(
                         'Phản hồi từ quán:',
-                        style: const TextStyle(fontSize: 13, color: Colors.black54),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black54,
+                        ),
                       ),
                       Text(
                         ' ${item.merchantReply!.content}',
-                        style: const TextStyle(fontSize: 13, color: AppColor.headerGradEnd),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColor.headerGradEnd,
+                        ),
                       ),
                     ],
                   ),
@@ -976,6 +984,35 @@ class _StatusChip extends StatelessWidget {
         label,
         style: const TextStyle(
           color: AppColor.primary,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class _OrderTypeChip extends StatelessWidget {
+  const _OrderTypeChip({required this.orderType});
+
+  final String orderType;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDineIn = orderType == 'dine_in';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: isDineIn
+            ? AppColor.info.withOpacity(0.10)
+            : AppColor.success.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        isDineIn ? 'Tại quán' : 'Giao hàng',
+        style: TextStyle(
+          color: isDineIn ? AppColor.info : AppColor.success,
           fontWeight: FontWeight.w700,
           fontSize: 12,
         ),

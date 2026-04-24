@@ -40,7 +40,7 @@ const formatCurrency = (value: number) => {
 const orderTypeLabel = (v: string) =>
   v === "delivery" ? "Giao hàng" : "Tại quán";
 
-const orderStatusLabel = (v: string) => {
+const orderStatusLabel = (v: string, orderType?: string) => {
   switch (v) {
     case "pending":
       return "Mới";
@@ -49,7 +49,7 @@ const orderStatusLabel = (v: string) => {
     case "preparing":
       return "Đang chuẩn bị";
     case "ready_for_pickup":
-      return "Sẵn sàng lấy";
+      return orderType === "dine_in" ? "Sẵn sàng phục vụ" : "Sẵn sàng lấy";
     case "driver_assigned":
       return "Đã có tài xế";
     case "driver_arrived":
@@ -467,7 +467,7 @@ export default function DashboardPage() {
                       {formatCurrency(order.total_amount)}
                     </p>
                     <Badge variant="outline">
-                      {orderStatusLabel(order.status)}
+                      {orderStatusLabel(order.status, order.order_type)}
                     </Badge>
                   </div>
                 </div>

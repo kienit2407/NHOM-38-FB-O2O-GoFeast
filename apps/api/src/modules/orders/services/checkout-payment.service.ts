@@ -1,11 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+    BadRequestException,
+    Injectable,
+    NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { ConfigService } from 'src/config/config.service';
+import { randomUUID } from 'crypto';
 
 import {
     Order,
     OrderDocument,
+    PaymentMethod as OrderPaymentMethod,
     PaymentStatus as OrderPaymentStatus,
     OrderType,
 } from '../schemas/order.schema';
@@ -20,6 +26,10 @@ import { OrderFactoryService } from './order-factory.service';
 import { VnpayService } from './vnpay.service';
 import { MomoService } from './momo.service';
 import { OrderLifecycleService } from './order-lifecycle.service';
+import {
+    Merchant,
+    MerchantDocument,
+} from 'src/modules/merchants/schemas/merchant.schema';
 
 @Injectable()
 export class CheckoutPaymentService {
@@ -28,6 +38,8 @@ export class CheckoutPaymentService {
         private readonly orderModel: Model<OrderDocument>,
         @InjectModel(Payment.name)
         private readonly paymentModel: Model<PaymentDocument>,
+        @InjectModel(Merchant.name)
+        private readonly merchantModel: Model<MerchantDocument>,
         private readonly orderFactory: OrderFactoryService,
         private readonly vnpay: VnpayService,
         private readonly momo: MomoService,
@@ -54,6 +66,34 @@ export class CheckoutPaymentService {
             url.searchParams.set(k, String(v));
         }
         return url.toString();
+    }
+
+    private mapPayment(payment: any) {
+        if (!payment) return null;
+
+        return {
+            payment_id: String(payment._id),
+            status: payment.status,
+            method: payment.payment_method,
+            amount: Number(payment.amount ?? 0),
+        };
+    }
+
+    private async assertMerchantOwnsOrder(args: {
+        merchantUserId: string;
+        order: any;
+    }) {
+        const merchant = await this.merchantModel.findOne({
+            _id: args.order.merchant_id,
+            owner_user_id: this.oid(args.merchantUserId, 'merchantUserId'),
+            deleted_at: null,
+        });
+
+        if (!merchant) {
+            throw new NotFoundException('Merchant not found');
+        }
+
+        return merchant;
     }
 
     async createPaymentAction(args: {
@@ -127,6 +167,236 @@ export class CheckoutPaymentService {
         return null;
     }
 
+    async merchantInitiateDineInPayment(args: {
+        merchantUserId: string;
+        orderId: string;
+        paymentMethod: 'vnpay' | 'momo';
+        clientIp?: string | null;
+    }) {
+        const order = await this.orderModel.findById(this.oid(args.orderId, 'orderId'));
+        if (!order) {
+            throw new NotFoundException('Order not found');
+        }
+
+        await this.assertMerchantOwnsOrder({
+            merchantUserId: args.merchantUserId,
+            order,
+        });
+
+        if (order.order_type !== OrderType.DINE_IN) {
+            throw new BadRequestException('Only dine-in order supports merchant payment settlement');
+        }
+
+        if (order.status === 'cancelled') {
+            throw new BadRequestException('Cancelled order cannot be settled');
+        }
+
+        if (order.status === 'completed') {
+            throw new BadRequestException('Completed order cannot be settled again');
+        }
+
+        if (order.payment_status === OrderPaymentStatus.PAID) {
+            return {
+                already_paid: true,
+                payment: this.mapPayment(
+                    await this.paymentModel
+                        .findOne({
+                            order_id: order._id,
+                            status: PaymentStatus.SUCCESS,
+                        })
+                        .sort({ created_at: -1 }),
+                ),
+                payment_action: null,
+            };
+        }
+
+        const targetMethod =
+            args.paymentMethod === 'momo' ? PaymentMethod.MOMO : PaymentMethod.VNPAY;
+
+        const payerUserId = order.customer_id
+            ? new Types.ObjectId(String(order.customer_id))
+            : this.oid(args.merchantUserId, 'merchantUserId');
+
+        await this.paymentModel.updateMany(
+            {
+                order_id: order._id,
+                status: PaymentStatus.PENDING,
+                payment_method: { $ne: targetMethod },
+            },
+            {
+                $set: {
+                    status: PaymentStatus.FAILED,
+                    gateway_response: {
+                        by_merchant_switch_method_at: new Date().toISOString(),
+                    },
+                },
+            },
+        );
+
+        let payment = await this.paymentModel
+            .findOne({
+                order_id: order._id,
+                payment_method: targetMethod,
+                status: PaymentStatus.PENDING,
+            })
+            .sort({ created_at: -1 });
+
+        if (!payment) {
+            payment = await this.paymentModel.create({
+                order_id: order._id,
+                user_id: payerUserId,
+                payment_method: targetMethod,
+                amount: Number(order.total_amount ?? 0),
+                currency: 'VND',
+                idempotency_key: randomUUID(),
+                status: PaymentStatus.PENDING,
+                gateway_response: {
+                    source: 'merchant_dine_in_settlement',
+                },
+            });
+        }
+
+        const paymentAction = await this.createPaymentAction({
+            order,
+            payment,
+            clientIp: args.clientIp ?? null,
+        });
+
+        order.payment_method = targetMethod as any;
+        order.payment_status = OrderPaymentStatus.PENDING;
+        await order.save();
+
+        return {
+            already_paid: false,
+            payment: this.mapPayment(payment),
+            payment_action: paymentAction,
+        };
+    }
+
+    async merchantConfirmDineInCashPayment(args: {
+        merchantUserId: string;
+        orderId: string;
+        receivedAmount: number;
+        note?: string;
+    }) {
+        const order = await this.orderModel.findById(this.oid(args.orderId, 'orderId'));
+        if (!order) {
+            throw new NotFoundException('Order not found');
+        }
+
+        await this.assertMerchantOwnsOrder({
+            merchantUserId: args.merchantUserId,
+            order,
+        });
+
+        if (order.order_type !== OrderType.DINE_IN) {
+            throw new BadRequestException('Only dine-in order supports merchant payment settlement');
+        }
+
+        if (order.status === 'cancelled') {
+            throw new BadRequestException('Cancelled order cannot be settled');
+        }
+
+        if (order.status === 'completed') {
+            throw new BadRequestException('Completed order cannot be settled again');
+        }
+
+        const totalAmount = Number(order.total_amount ?? 0);
+        const receivedAmount = Number(args.receivedAmount ?? 0);
+        const changeAmount = receivedAmount - totalAmount;
+
+        if (!Number.isFinite(receivedAmount) || receivedAmount < totalAmount) {
+            throw new BadRequestException('Received amount must be greater than or equal total amount');
+        }
+
+        if (order.payment_status === OrderPaymentStatus.PAID) {
+            if (order.payment_method !== OrderPaymentMethod.CASH) {
+                throw new BadRequestException('Order already paid by online method');
+            }
+
+            await this.orderLifecycleService.completeDineInOrderAfterPayment(
+                String(order._id),
+                {
+                    changedBy: args.merchantUserId,
+                    note: args.note ?? 'Merchant confirmed paid dine-in order',
+                },
+            );
+
+            const paidPayment = await this.paymentModel
+                .findOne({
+                    order_id: order._id,
+                    status: PaymentStatus.SUCCESS,
+                })
+                .sort({ created_at: -1 });
+
+            return {
+                payment: this.mapPayment(paidPayment),
+                received_amount: receivedAmount,
+                change_amount: changeAmount,
+            };
+        }
+
+        await this.paymentModel.updateMany(
+            {
+                order_id: order._id,
+                status: PaymentStatus.PENDING,
+            },
+            {
+                $set: {
+                    status: PaymentStatus.FAILED,
+                    gateway_response: {
+                        cancelled_by_cash_settlement_at: new Date().toISOString(),
+                    },
+                },
+            },
+        );
+
+        const payerUserId = order.customer_id
+            ? new Types.ObjectId(String(order.customer_id))
+            : this.oid(args.merchantUserId, 'merchantUserId');
+
+        const payment = await this.paymentModel.create({
+            order_id: order._id,
+            user_id: payerUserId,
+            payment_method: PaymentMethod.CASH,
+            amount: totalAmount,
+            currency: 'VND',
+            idempotency_key: randomUUID(),
+            status: PaymentStatus.SUCCESS,
+            completed_at: new Date(),
+            gateway_response: {
+                source: 'merchant_dine_in_cash_settlement',
+                cash: {
+                    received_amount: receivedAmount,
+                    change_amount: changeAmount,
+                    confirmed_by: args.merchantUserId,
+                    confirmed_at: new Date().toISOString(),
+                },
+            },
+        });
+
+        order.payment_method = OrderPaymentMethod.CASH;
+        order.payment_status = OrderPaymentStatus.PAID;
+        order.paid_at = order.paid_at ?? new Date();
+        await order.save();
+
+        await this.orderLifecycleService.completeDineInOrderAfterPayment(
+            String(order._id),
+            {
+                changedBy: args.merchantUserId,
+                note:
+                    args.note ??
+                    `Thanh toán tiền mặt. Khách đưa ${receivedAmount}, tiền thối ${changeAmount}`,
+            },
+        );
+
+        return {
+            payment: this.mapPayment(payment),
+            received_amount: receivedAmount,
+            change_amount: changeAmount,
+        };
+    }
+
     private async finalizeSuccess(args: {
         payment: any;
         order: any;
@@ -134,6 +404,7 @@ export class CheckoutPaymentService {
         raw: any;
     }) {
         const alreadySucceeded = args.payment.status === PaymentStatus.SUCCESS;
+        const source = String(args.payment.gateway_response?.source ?? '');
 
         args.payment.status = PaymentStatus.SUCCESS;
         args.payment.completed_at = args.payment.completed_at ?? new Date();
@@ -156,14 +427,16 @@ export class CheckoutPaymentService {
                 voucher_applied: null,
             };
 
-            await this.orderFactory.markBenefitsUsed({
-                userId: String(args.order.customer_id),
-                orderId: String(args.order._id),
-                promotions: {
-                    auto_applied: snap.auto_applied ?? [],
-                    voucher_applied: snap.voucher_applied ?? null,
-                },
-            });
+            if (args.order.customer_id) {
+                await this.orderFactory.markBenefitsUsed({
+                    userId: String(args.order.customer_id),
+                    orderId: String(args.order._id),
+                    promotions: {
+                        auto_applied: snap.auto_applied ?? [],
+                        voucher_applied: snap.voucher_applied ?? null,
+                    },
+                });
+            }
 
             await this.orderFactory.clearCartByOrder(args.order);
 
@@ -171,6 +444,29 @@ export class CheckoutPaymentService {
                 await this.orderLifecycleService.activateDeliveryOrder(
                     String(args.order._id),
                 );
+            } else if (
+                args.order.order_type === OrderType.DINE_IN &&
+                source !== 'merchant_dine_in_settlement'
+            ) {
+                await this.orderLifecycleService.activateDineInOrder(
+                    String(args.order._id),
+                );
+            }
+        }
+
+        if (
+            args.order.order_type === OrderType.DINE_IN &&
+            source === 'merchant_dine_in_settlement'
+        ) {
+            try {
+                await this.orderLifecycleService.completeDineInOrderAfterPayment(
+                    String(args.order._id),
+                    {
+                        note: 'Đồng bộ trạng thái thanh toán online',
+                    },
+                );
+            } catch (_) {
+                // giữ callback idempotent, không throw ngược về gateway
             }
         }
     }

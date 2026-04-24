@@ -104,7 +104,9 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
         etaAt: order.etaAt,
         driverLat: order.driver?.lat,
         driverLng: order.driver?.lng,
-        dispatchState: order.driverAssigned ? 'assigned' : 'searching',
+        dispatchState: order.isDineIn
+            ? ''
+            : (order.driverAssigned ? 'assigned' : 'searching'),
       );
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -125,6 +127,7 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
             id: current.id,
             orderNumber: current.orderNumber,
             status: nextStatus.isEmpty ? current.status : nextStatus,
+            orderType: current.orderType,
             driverAssigned: data['driverId'] != null || current.driverAssigned,
             merchant: current.merchant,
             driver: current.driver,
@@ -132,9 +135,9 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
             etaMin: (data['etaMin'] as num?)?.toInt() ?? current.etaMin,
             etaAt: data['etaAt']?.toString() ?? current.etaAt,
           ),
-          dispatchState: data['driverId'] != null
-              ? 'assigned'
-              : state.dispatchState,
+          dispatchState: current.isDineIn
+              ? ''
+              : (data['driverId'] != null ? 'assigned' : state.dispatchState),
           etaMin: (data['etaMin'] as num?)?.toInt() ?? state.etaMin,
           etaAt: data['etaAt']?.toString() ?? state.etaAt,
           latestMessage: message,
@@ -159,7 +162,7 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
       if (data['orderId']?.toString() != orderId) return;
 
       state = state.copyWith(
-        dispatchState: 'searching',
+        dispatchState: state.order?.isDineIn == true ? '' : 'searching',
         latestMessage: data['message']?.toString(),
       );
     });
@@ -168,7 +171,7 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
       if (data['orderId']?.toString() != orderId) return;
 
       state = state.copyWith(
-        dispatchState: 'expired',
+        dispatchState: state.order?.isDineIn == true ? '' : 'expired',
         latestMessage: data['message']?.toString(),
       );
     });
@@ -183,6 +186,7 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
             id: current.id,
             orderNumber: current.orderNumber,
             status: 'cancelled',
+            orderType: current.orderType,
             driverAssigned: current.driverAssigned,
             merchant: current.merchant,
             driver: current.driver,

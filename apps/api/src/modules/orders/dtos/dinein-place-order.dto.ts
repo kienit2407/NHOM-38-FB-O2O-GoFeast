@@ -5,8 +5,9 @@ export class DineInPlaceOrderDto {
     @IsMongoId()
     table_session_id: string;
 
+    @IsOptional()
     @IsEnum(PaymentMethod)
-    payment_method: PaymentMethod;
+    payment_method?: PaymentMethod;
 
     @IsOptional()
     @IsString()

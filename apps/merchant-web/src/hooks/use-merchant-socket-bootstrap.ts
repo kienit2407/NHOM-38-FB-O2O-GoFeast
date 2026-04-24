@@ -5,6 +5,7 @@ import { useMerchantSocketStore } from "@/store/merchantSocketStore";
 import { useMerchantAuth } from "@/store/authStore";
 import { useMerchantOrderStore } from "@/store/merchantOrderStore";
 import { useMerchantReviewsStore } from "@/store/merchantReviewsStore";
+import { useTableStore } from "@/store/tableStore";
 
 function resolveMerchantId(user: any, merchant: any): string | null {
     return (
@@ -54,6 +55,7 @@ export function useMerchantSocketBootstrap() {
     const upsertOrder = useMerchantSocketStore((s) => s.upsertOrder);
     const reset = useMerchantSocketStore((s) => s.reset);
     const refreshOne = useMerchantOrderStore((s) => s.refreshOne);
+    const fetchTables = useTableStore((s) => s.fetchTables);
 
     useEffect(() => {
         if (!isAuthenticated || !user || !accessToken) {
@@ -110,10 +112,10 @@ export function useMerchantSocketBootstrap() {
                     orderId,
                     title: isDineIn
                         ? `Đơn tại bàn ${data?.tableNumber ?? data?.table_number ?? "?"}`
-                        : "Đơn mới chờ xác nhận",
+                        : "Đơn giao hàng mới",
                     message: isDineIn
                         ? "Nhà hàng vừa nhận được đơn tại bàn mới"
-                        : "Nhà hàng vừa nhận được đơn delivery mới đang chờ xác nhận",
+                        : "Nhà hàng vừa nhận được đơn delivery mới, hệ thống đang tìm tài xế",
                     raw: data,
                 }),
             );
@@ -154,6 +156,8 @@ export function useMerchantSocketBootstrap() {
             const orderId = String(data?.orderId ?? "");
             if (!orderId) return;
 
+            void refreshOne(orderId);
+
             pushNotification(
                 buildNotification({
                     type: "dispatch_expired",
@@ -183,6 +187,10 @@ export function useMerchantSocketBootstrap() {
             );
         };
 
+        const handleTableStatus = (_data: any) => {
+            void fetchTables();
+        };
+
         const handleNotificationNew = (data: any) => {
             pushNotification({
                 id: String(data?.id ?? `notif_${Date.now()}`),
@@ -208,6 +216,7 @@ export function useMerchantSocketBootstrap() {
         merchantSocketService.on("merchant:notification:new", handleNotificationNew);
         merchantSocketService.on("merchant:order:new", handleOrderNew);
         merchantSocketService.on("merchant:order:status", handleOrderStatus);
+        merchantSocketService.on("merchant:table:status", handleTableStatus);
         merchantSocketService.on("merchant:dispatch:expired", handleDispatchExpired);
         merchantSocketService.on("merchant:dispatch:cancelled", handleDispatchCancelled);
 
@@ -215,6 +224,7 @@ export function useMerchantSocketBootstrap() {
             merchantSocketService.off("merchant:notification:new", handleNotificationNew);
             merchantSocketService.off("merchant:order:new", handleOrderNew);
             merchantSocketService.off("merchant:order:status", handleOrderStatus);
+            merchantSocketService.off("merchant:table:status", handleTableStatus);
             merchantSocketService.off("merchant:dispatch:expired", handleDispatchExpired);
             merchantSocketService.off("merchant:dispatch:cancelled", handleDispatchCancelled);
 
@@ -234,6 +244,7 @@ export function useMerchantSocketBootstrap() {
         reset,
         setConnected,
         upsertOrder,
+        fetchTables,
         user,
     ]);
 }

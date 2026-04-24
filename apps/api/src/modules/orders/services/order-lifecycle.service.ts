@@ -29,9 +29,17 @@ import {
     DispatchOfferService,
 } from 'src/modules/realtime/services/dispatch-offer.service';
 import { RealtimeGateway } from 'src/modules/realtime/realtime.gateway';
+import { RealtimeEvents } from 'src/modules/realtime/realtime.events';
 import { DeliveryRouteResolverService } from 'src/modules/geo/services/delivery-route-resolver.service';
-import { SystemConfigsService } from 'src/modules/system-config/services/system-configs.service';
 import { SettlementService } from './settlement.service';
+import {
+    Table,
+    TableDocument,
+    TableSession,
+    TableSessionDocument,
+    TableSessionStatus,
+    TableStatus,
+} from 'src/modules/dinein/schemas';
 
 @Injectable()
 export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
@@ -47,6 +55,10 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         private readonly orderModel: Model<OrderDocument>,
         @InjectModel(Merchant.name)
         private readonly merchantModel: Model<MerchantDocument>,
+        @InjectModel(Table.name)
+        private readonly tableModel: Model<TableDocument>,
+        @InjectModel(TableSession.name)
+        private readonly tableSessionModel: Model<TableSessionDocument>,
         private readonly driverProfilesService: DriverProfilesService,
         private readonly notificationsService: NotificationsService,
         private readonly dispatchOfferService: DispatchOfferService,
@@ -73,25 +85,42 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         const orderId = String(params.order._id);
         const orderNumber = params.order?.order_number ?? null;
         const orderType = params.order?.order_type ?? null;
+        const tableSessionId = params.order?.table_session_id
+            ? String(params.order.table_session_id)
+            : null;
         const merchantId = String(params.order.merchant_id);
-        const customerUserId = String(params.order.customer_id);
+        const customerUserId = params.order?.customer_id
+            ? String(params.order.customer_id)
+            : null;
         const driverId = params.order.driver_id ? String(params.order.driver_id) : null;
         const nowIso = new Date().toISOString();
 
-        this.realtimeGateway.emitToCustomer(
-            customerUserId,
-            'customer:order:status',
-            {
-                orderId,
-                status: params.status,
-                merchantId,
-                driverId,
-                etaMin: params.etaMin ?? null,
-                etaAt: params.etaAt ?? null,
-                message: params.message,
-                updatedAt: nowIso,
-            },
-        );
+        const customerPayload = {
+            orderId,
+            status: params.status,
+            orderType,
+            tableSessionId,
+            merchantId,
+            driverId,
+            etaMin: params.etaMin ?? null,
+            etaAt: params.etaAt ?? null,
+            message: params.message,
+            updatedAt: nowIso,
+        };
+
+        if (customerUserId) {
+            this.realtimeGateway.emitToCustomer(
+                customerUserId,
+                'customer:order:status',
+                customerPayload,
+            );
+        } else if (orderType === OrderType.DINE_IN && tableSessionId) {
+            this.realtimeGateway.emitToDineInSession(
+                tableSessionId,
+                'customer:order:status',
+                customerPayload,
+            );
+        }
 
         this.realtimeGateway.emitToMerchant(
             merchantId,
@@ -99,6 +128,9 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
             {
                 orderId,
                 status: params.status,
+                orderType,
+                tableSessionId,
+                merchantId,
                 driverId,
                 message: params.message,
                 updatedAt: nowIso,
@@ -177,14 +209,17 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
             etaAt: params.etaAt ?? null,
         });
 
-        await this.notificationsService.notifyCustomerOrderStatus({
-            userId: String(params.order.customer_id),
-            orderId: String(params.order._id),
-            orderNumber: params.order.order_number,
-            imageUrl: this.getOrderPreviewImage(params.order) ?? undefined,
-            status: params.status,
-            body: params.message,
-        });
+        if (params.order?.customer_id) {
+            await this.notificationsService.notifyCustomerOrderStatus({
+                userId: String(params.order.customer_id),
+                orderId: String(params.order._id),
+                orderNumber: params.order.order_number,
+                imageUrl: this.getOrderPreviewImage(params.order) ?? undefined,
+                status: params.status,
+                body: params.message,
+                orderType: params.order.order_type,
+            });
+        }
     }
     private buildHistory(params: {
         status: string;
@@ -225,6 +260,115 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         }
 
         return null;
+    }
+
+    private async finalizeTableAfterDineInCompletion(order: any) {
+        const tableSessionId = order?.table_session_id
+            ? String(order.table_session_id)
+            : null;
+        if (!tableSessionId) return;
+
+        const session = await this.tableSessionModel.findById(
+            this.oid(tableSessionId, 'tableSessionId'),
+        );
+        if (!session) return;
+
+        const pendingOrdersInSession = await this.orderModel.countDocuments({
+            table_session_id: session._id,
+            _id: { $ne: order._id },
+            status: { $nin: [OrderStatus.CANCELLED, OrderStatus.COMPLETED] },
+        });
+        if (pendingOrdersInSession > 0) return;
+
+        const now = new Date();
+        if (
+            ![TableSessionStatus.COMPLETED, TableSessionStatus.CANCELLED].includes(
+                session.status as TableSessionStatus,
+            )
+        ) {
+            session.status = TableSessionStatus.COMPLETED;
+            session.ended_at = session.ended_at ?? now;
+            if (!Number.isFinite(Number(session.total_amount ?? 0)) || Number(session.total_amount ?? 0) <= 0) {
+                session.total_amount = Number(order?.total_amount ?? 0);
+            }
+            await session.save();
+        }
+
+        const releaseResult = await this.tableModel.updateOne(
+            {
+                _id: session.table_id,
+                merchant_id: session.merchant_id,
+                current_session_id: session._id,
+            },
+            {
+                $set: {
+                    status: TableStatus.AVAILABLE,
+                    current_session_id: null,
+                },
+            },
+        );
+
+        let table: any = await this.tableModel.findById(session.table_id).lean();
+
+        if (
+            (releaseResult.modifiedCount ?? 0) === 0 &&
+            table &&
+            !table.current_session_id &&
+            table.status === TableStatus.OCCUPIED
+        ) {
+            await this.tableModel.updateOne(
+                {
+                    _id: session.table_id,
+                    merchant_id: session.merchant_id,
+                },
+                {
+                    $set: {
+                        status: TableStatus.AVAILABLE,
+                        current_session_id: null,
+                    },
+                },
+            );
+            table = await this.tableModel.findById(session.table_id).lean();
+        }
+
+        const payload = {
+            action: 'closed',
+            reason: 'payment_completed',
+            orderId: String(order._id),
+            merchantId: String(order.merchant_id),
+            tableId: String(session.table_id),
+            tableSessionId: String(session._id),
+            tableStatus: table?.status ?? TableStatus.AVAILABLE,
+            updatedAt: now.toISOString(),
+        };
+
+        this.realtimeGateway.emitToDineInSession(
+            String(session._id),
+            RealtimeEvents.CUSTOMER_DINEIN_SESSION,
+            payload,
+        );
+
+        if (order?.customer_id) {
+            this.realtimeGateway.emitToCustomer(
+                String(order.customer_id),
+                RealtimeEvents.CUSTOMER_DINEIN_SESSION,
+                payload,
+            );
+        }
+
+        this.realtimeGateway.emitToMerchant(
+            String(order.merchant_id),
+            RealtimeEvents.MERCHANT_TABLE_STATUS,
+            {
+                merchantId: String(order.merchant_id),
+                tableId: String(session.table_id),
+                tableNumber: table?.table_number ?? null,
+                status: table?.status ?? TableStatus.AVAILABLE,
+                currentSessionId: null,
+                reason: 'payment_completed',
+                updatedAt: now.toISOString(),
+            },
+        );
     }
     private async getBusyDriverIds() {
         const rawIds = await this.orderModel.distinct('driver_id', {
@@ -297,6 +441,17 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
 
         const nowIso = new Date().toISOString();
 
+        const shouldAutoConfirm = order.status === OrderStatus.PENDING;
+        if (shouldAutoConfirm) {
+            order.status = OrderStatus.CONFIRMED;
+            order.status_history.push(
+                this.buildHistory({
+                    status: OrderStatus.CONFIRMED,
+                    note: 'Delivery order auto-confirmed by system',
+                }) as any,
+            );
+        }
+
         this.realtimeGateway.emitToMerchant(
             String(order.merchant_id),
             'merchant:order:new',
@@ -304,7 +459,7 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
                 orderId: String(order._id),
                 orderNumber: order.order_number,
                 orderType: order.order_type,
-                status: OrderStatus.PENDING,
+                status: order.status,
                 paymentMethod: order.payment_method,
                 totalAmount: Number(order.total_amount ?? 0),
                 itemCount,
@@ -313,7 +468,7 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
                 customerAddress: order.delivery_address?.address ?? null,
                 orderNote: order.order_note ?? null,
                 createdAt: nowIso,
-                message: 'Có đơn mới chờ xác nhận',
+                message: 'Có đơn giao hàng mới, hệ thống đang tìm tài xế',
             },
         );
 
@@ -335,7 +490,189 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         order.status_history.push(
             this.buildHistory({
                 status: 'merchant_notified',
-                note: 'Merchant has been notified about the new order',
+                note: 'Merchant has been notified about the new delivery order',
+            }) as any,
+        );
+        await order.save();
+
+        let dispatch: any = null;
+        try {
+            dispatch = await this.startDispatchForOrder(String(order._id), {
+                wave: 1,
+            });
+        } catch (e: any) {
+            this.logger.error(
+                `[activateDeliveryOrder] dispatch failed for order=${String(order._id)}: ${e?.message ?? e}`,
+            );
+
+            const failedAt = new Date().toISOString();
+            order.driver_accept_deadline_at = null;
+            order.status_history.push(
+                this.buildHistory({
+                    status: 'dispatch_expired',
+                    note: e?.message ?? 'Dispatch failed after order activation',
+                }) as any,
+            );
+            await order.save();
+
+            this.realtimeGateway.emitToCustomer(
+                String(order.customer_id),
+                'customer:dispatch:expired',
+                {
+                    orderId: String(order._id),
+                    status: 'dispatch_expired',
+                    reason: 'dispatch_failed',
+                    message: 'Hiện chưa tìm được tài xế phù hợp cho đơn của bạn',
+                    updatedAt: failedAt,
+                },
+            );
+
+            this.realtimeGateway.emitToMerchant(
+                String(order.merchant_id),
+                'merchant:dispatch:expired',
+                {
+                    orderId: String(order._id),
+                    status: 'dispatch_expired',
+                    reason: 'dispatch_failed',
+                    message: 'Đơn hiện chưa tìm được tài xế phù hợp',
+                    updatedAt: failedAt,
+                },
+            );
+
+            dispatch = {
+                ok: false,
+                reason: 'dispatch_failed',
+                message: e?.message ?? 'Dispatch failed',
+            };
+        }
+
+        return {
+            ok: true,
+            orderId: String(order._id),
+            merchantNotified: Boolean(merchantUserId),
+            dispatch,
+        };
+    }
+
+    async activateDineInOrder(orderId: string) {
+        const order = await this.orderModel.findById(this.oid(orderId, 'orderId'));
+        if (!order) {
+            throw new NotFoundException('Order not found');
+        }
+
+        if (order.order_type !== OrderType.DINE_IN) {
+            return {
+                ok: false,
+                reason: 'not_dine_in_order',
+            };
+        }
+
+        if (order.status === OrderStatus.CANCELLED) {
+            return {
+                ok: false,
+                reason: 'order_cancelled',
+            };
+        }
+
+        if (order.status === OrderStatus.COMPLETED) {
+            return {
+                ok: false,
+                reason: 'order_completed',
+            };
+        }
+
+        if (
+            order.payment_method !== PaymentMethod.CASH &&
+            order.payment_status !== PaymentStatus.PAID
+        ) {
+            return {
+                ok: false,
+                reason: 'order_not_paid',
+            };
+        }
+
+        const history = Array.isArray(order.status_history) ? order.status_history : [];
+        const hasMerchantNotified = history.some(
+            (x: any) => String(x?.status ?? '') === 'merchant_notified',
+        );
+        if (hasMerchantNotified) {
+            return {
+                ok: true,
+                reason: 'already_notified',
+            };
+        }
+
+        const merchant: any = await this.merchantModel
+            .findById(order.merchant_id)
+            .select('_id name address owner_user_id')
+            .lean();
+
+        if (!merchant) {
+            throw new NotFoundException('Merchant not found');
+        }
+
+        const merchantUserId =
+            merchant?.owner_user_id != null ? String(merchant.owner_user_id) : null;
+
+        if (merchantUserId) {
+            await this.notificationsService.notifyMerchantNewOrder({
+                userId: merchantUserId,
+                orderId: String(order._id),
+                orderNumber: order.order_number,
+                imageUrl: this.getOrderPreviewImage(order) ?? undefined,
+                orderType: order.order_type,
+            });
+        }
+
+        const itemCount = (order.items ?? []).reduce(
+            (sum: number, it: any) => sum + Number(it.quantity ?? 0),
+            0,
+        );
+
+        const nowIso = new Date().toISOString();
+
+        this.realtimeGateway.emitToMerchant(
+            String(order.merchant_id),
+            'merchant:order:new',
+            {
+                orderId: String(order._id),
+                orderNumber: order.order_number,
+                orderType: order.order_type,
+                tableSessionId: order.table_session_id
+                    ? String(order.table_session_id)
+                    : null,
+                status: OrderStatus.PENDING,
+                paymentMethod: order.payment_method,
+                totalAmount: Number(order.total_amount ?? 0),
+                itemCount,
+                orderNote: order.order_note ?? null,
+                createdAt: nowIso,
+                message: 'Có đơn tại quán mới chờ xác nhận',
+            },
+        );
+
+        this.realtimeGateway.emitToAdmins('admin:order:new', {
+            orderId: String(order._id),
+            orderNumber: order.order_number,
+            orderType: order.order_type,
+            tableSessionId: order.table_session_id
+                ? String(order.table_session_id)
+                : null,
+            status: order.status,
+            merchantId: String(order.merchant_id),
+            customerUserId: order.customer_id ? String(order.customer_id) : null,
+            driverId: null,
+            paymentMethod: order.payment_method,
+            totalAmount: Number(order.total_amount ?? 0),
+            itemCount,
+            createdAt: nowIso,
+            message: 'Có đơn tại quán mới vừa tạo',
+        });
+
+        order.status_history.push(
+            this.buildHistory({
+                status: 'merchant_notified',
+                note: 'Merchant has been notified about the new dine-in order',
             }) as any,
         );
         await order.save();
@@ -344,7 +681,6 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
             ok: true,
             orderId: String(order._id),
             merchantNotified: Boolean(merchantUserId),
-            dispatch: null,
         };
     }
     async startDispatchForOrder(
@@ -649,6 +985,82 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         };
     }
 
+    async merchantRetryDispatch(orderId: string, merchantUserId: string, note?: string) {
+        const order = await this.orderModel.findById(this.oid(orderId, 'orderId'));
+        if (!order) throw new NotFoundException('Order not found');
+
+        const merchant = await this.merchantModel.findOne({
+            _id: order.merchant_id,
+            owner_user_id: this.oid(merchantUserId, 'merchantUserId'),
+            deleted_at: null,
+        });
+
+        if (!merchant) {
+            throw new NotFoundException('Merchant not found');
+        }
+
+        if (order.order_type !== OrderType.DELIVERY) {
+            throw new BadRequestException('Only delivery order supports dispatch retry');
+        }
+
+        if (order.driver_id) {
+            throw new BadRequestException('Order already has driver assigned');
+        }
+
+        if (
+            ![
+                OrderStatus.CONFIRMED,
+                OrderStatus.PREPARING,
+                OrderStatus.READY_FOR_PICKUP,
+            ].includes(order.status)
+        ) {
+            throw new BadRequestException(
+                'Order is not eligible for manual dispatch retry',
+            );
+        }
+
+        const activeOffer = this.dispatchOfferService.getOffer(String(order._id));
+        if (activeOffer?.status === 'pending') {
+            throw new ConflictException('Dispatch is still searching driver');
+        }
+
+        const history = Array.isArray(order.status_history) ? order.status_history : [];
+        let lastDispatchMarker: string | null = null;
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+            const s = String(history[i]?.status ?? '');
+            if (
+                s === 'dispatch_expired' ||
+                s === 'dispatch_searching' ||
+                s === 'dispatch_retrying'
+            ) {
+                lastDispatchMarker = s;
+                break;
+            }
+        }
+
+        if (lastDispatchMarker !== 'dispatch_expired') {
+            throw new BadRequestException('Manual dispatch is only available after dispatch expired');
+        }
+
+        order.status_history.push(
+            this.buildHistory({
+                status: 'dispatch_manual_retry',
+                changedBy: merchantUserId,
+                note: note ?? 'Merchant manually retried dispatch',
+            }) as any,
+        );
+        await order.save();
+
+        const dispatch = await this.startDispatchForOrder(String(order._id), {
+            wave: 1,
+        });
+
+        return {
+            order,
+            dispatch,
+        };
+    }
+
     async merchantRejectPendingOrder(
         merchantUserId: string,
         orderId: string,
@@ -689,18 +1101,32 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
 
         this.dispatchOfferService.cancelOffer(String(order._id), 'merchant_rejected');
 
-        this.realtimeGateway.emitToCustomer(
-            String(order.customer_id),
-            'customer:order:cancelled',
-            {
-                orderId: String(order._id),
-                status: 'cancelled',
-                cancelledBy: 'merchant',
-                reason: reason ?? null,
-                message: 'Quán đã từ chối đơn hàng của bạn',
-                updatedAt: new Date().toISOString(),
-            },
-        );
+        const cancelledPayload = {
+            orderId: String(order._id),
+            status: 'cancelled',
+            orderType: order.order_type,
+            tableSessionId: order.table_session_id
+                ? String(order.table_session_id)
+                : null,
+            cancelledBy: 'merchant',
+            reason: reason ?? null,
+            message: 'Quán đã từ chối đơn hàng của bạn',
+            updatedAt: new Date().toISOString(),
+        };
+
+        if (order.customer_id) {
+            this.realtimeGateway.emitToCustomer(
+                String(order.customer_id),
+                'customer:order:cancelled',
+                cancelledPayload,
+            );
+        } else if (order.order_type === OrderType.DINE_IN && order.table_session_id) {
+            this.realtimeGateway.emitToDineInSession(
+                String(order.table_session_id),
+                'customer:order:cancelled',
+                cancelledPayload,
+            );
+        }
 
         return order;
     }
@@ -708,8 +1134,18 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         const order = await this.orderModel.findById(this.oid(orderId, 'orderId'));
         if (!order) throw new NotFoundException('Order not found');
 
-        if (order.status !== OrderStatus.CONFIRMED) {
-            throw new BadRequestException('Only confirmed order can move to preparing');
+        if (order.status === OrderStatus.PREPARING) {
+            return order;
+        }
+
+        if (
+            ![OrderStatus.CONFIRMED, OrderStatus.DRIVER_ASSIGNED].includes(
+                order.status,
+            )
+        ) {
+            throw new BadRequestException(
+                'Only confirmed/driver_assigned order can move to preparing',
+            );
         }
 
         await this.setOrderStatus({
@@ -727,6 +1163,10 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         const order = await this.orderModel.findById(this.oid(orderId, 'orderId'));
         if (!order) throw new NotFoundException('Order not found');
 
+        if (order.status === OrderStatus.READY_FOR_PICKUP) {
+            return order;
+        }
+
         if (![OrderStatus.PREPARING, OrderStatus.DRIVER_ARRIVED].includes(order.status)) {
             throw new BadRequestException('Only preparing/driver_arrived order can move to ready_for_pickup');
         }
@@ -736,7 +1176,10 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
             status: OrderStatus.READY_FOR_PICKUP,
             changedBy: merchantUserId,
             note,
-            message: 'Món đã sẵn sàng để tài xế lấy',
+            message:
+                order.order_type === OrderType.DINE_IN
+                    ? 'Món đã sẵn sàng để phục vụ khách tại quán'
+                    : 'Món đã sẵn sàng để tài xế lấy',
         });
 
         return order;
@@ -904,6 +1347,61 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         return order;
     }
 
+    async completeDineInOrderAfterPayment(
+        orderId: string,
+        opts?: { changedBy?: string | null; note?: string | null },
+    ) {
+        const order = await this.orderModel.findById(this.oid(orderId, 'orderId'));
+        if (!order) {
+            throw new NotFoundException('Order not found');
+        }
+
+        if (order.order_type !== OrderType.DINE_IN) {
+            throw new BadRequestException('Only dine-in order can be completed by payment');
+        }
+
+        if (order.status === OrderStatus.CANCELLED) {
+            throw new BadRequestException('Cancelled order cannot be completed');
+        }
+
+        if (order.status === OrderStatus.COMPLETED) {
+            try {
+                await this.finalizeTableAfterDineInCompletion(order);
+            } catch (e) {
+                this.logger.error(
+                    `[completeDineInOrderAfterPayment] finalize table failed for order=${String(order._id)}`,
+                    e instanceof Error ? e.stack : undefined,
+                );
+            }
+            return order;
+        }
+
+        if (order.payment_status !== PaymentStatus.PAID) {
+            throw new BadRequestException('Only paid dine-in order can be completed');
+        }
+
+        order.settlement = await this.settlementService.buildSettlement(order);
+
+        await this.setOrderStatus({
+            order,
+            status: OrderStatus.COMPLETED,
+            changedBy: opts?.changedBy ?? null,
+            note: opts?.note ?? null,
+            message: 'Đơn tại quán đã hoàn tất',
+        });
+
+        try {
+            await this.finalizeTableAfterDineInCompletion(order);
+        } catch (e) {
+            this.logger.error(
+                `[completeDineInOrderAfterPayment] finalize table failed for order=${String(order._id)}`,
+                e instanceof Error ? e.stack : undefined,
+            );
+        }
+
+        return order;
+    }
+
     async adminForceCancelOrder(adminUserId: string, orderId: string, reason?: string) {
         const order = await this.orderModel.findById(this.oid(orderId, 'orderId'));
         if (!order) throw new NotFoundException('Order not found');
@@ -930,14 +1428,32 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
 
         this.dispatchOfferService.cancelOffer(String(order._id), 'admin_force_cancelled');
 
-        this.realtimeGateway.emitToCustomer(String(order.customer_id), 'customer:order:cancelled', {
+        const cancelledPayload = {
             orderId: String(order._id),
             status: 'cancelled',
+            orderType: order.order_type,
+            tableSessionId: order.table_session_id
+                ? String(order.table_session_id)
+                : null,
             cancelledBy: 'admin',
             reason: reason ?? null,
             message: 'Đơn hàng đã bị huỷ bởi quản trị viên',
             updatedAt: new Date().toISOString(),
-        });
+        };
+
+        if (order.customer_id) {
+            this.realtimeGateway.emitToCustomer(
+                String(order.customer_id),
+                'customer:order:cancelled',
+                cancelledPayload,
+            );
+        } else if (order.order_type === OrderType.DINE_IN && order.table_session_id) {
+            this.realtimeGateway.emitToDineInSession(
+                String(order.table_session_id),
+                'customer:order:cancelled',
+                cancelledPayload,
+            );
+        }
 
         const merchant: any = await this.merchantModel
             .findById(order.merchant_id)
@@ -993,14 +1509,32 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
             message: 'Khách đã hủy đơn hàng',
         });
 
-        this.realtimeGateway.emitToCustomer(String(order.customer_id), 'customer:order:cancelled', {
+        const cancelledPayload = {
             orderId: String(order._id),
             status: 'cancelled',
+            orderType: order.order_type,
+            tableSessionId: order.table_session_id
+                ? String(order.table_session_id)
+                : null,
             cancelledBy: 'customer',
             reason: reason ?? null,
             message: 'Bạn đã hủy đơn hàng',
             updatedAt: new Date().toISOString(),
-        });
+        };
+
+        if (order.customer_id) {
+            this.realtimeGateway.emitToCustomer(
+                String(order.customer_id),
+                'customer:order:cancelled',
+                cancelledPayload,
+            );
+        } else if (order.order_type === OrderType.DINE_IN && order.table_session_id) {
+            this.realtimeGateway.emitToDineInSession(
+                String(order.table_session_id),
+                'customer:order:cancelled',
+                cancelledPayload,
+            );
+        }
 
         const merchant: any = await this.merchantModel
             .findById(order.merchant_id)

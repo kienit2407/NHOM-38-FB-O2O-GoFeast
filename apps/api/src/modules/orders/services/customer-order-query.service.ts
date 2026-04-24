@@ -70,7 +70,9 @@ export class CustomerOrderQueryService {
         return new Types.ObjectId(id);
     }
 
-    private statusLabel(status: string) {
+    private statusLabel(status: string, orderType?: string | null) {
+        const isDineIn = orderType === OrderType.DINE_IN;
+
         switch (status) {
             case 'pending':
                 return 'Chờ xác nhận';
@@ -79,7 +81,7 @@ export class CustomerOrderQueryService {
             case 'preparing':
                 return 'Đang chuẩn bị';
             case 'ready_for_pickup':
-                return 'Sẵn sàng lấy món';
+                return isDineIn ? 'Sẵn sàng phục vụ' : 'Sẵn sàng lấy món';
             case 'driver_assigned':
                 return 'Đã có tài xế';
             case 'driver_arrived':
@@ -97,6 +99,48 @@ export class CustomerOrderQueryService {
             default:
                 return status;
         }
+    }
+
+    private getLastDispatchMarker(order: any): string | null {
+        const history = Array.isArray(order?.status_history) ? order.status_history : [];
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+            const status = String(history[i]?.status ?? '');
+            if (
+                status === 'dispatch_searching' ||
+                status === 'dispatch_retrying' ||
+                status === 'dispatch_expired'
+            ) {
+                return status;
+            }
+        }
+        return null;
+    }
+
+    private displayStatus(order: any) {
+        if (
+            order?.order_type === OrderType.DELIVERY &&
+            !order?.driver_id &&
+            ![OrderStatus.CANCELLED, OrderStatus.COMPLETED].includes(order?.status)
+        ) {
+            const marker = this.getLastDispatchMarker(order);
+            if (marker === 'dispatch_searching' || marker === 'dispatch_retrying') {
+                return {
+                    status: 'searching_driver',
+                    label: 'Đang tìm tài xế',
+                };
+            }
+            if (marker === 'dispatch_expired') {
+                return {
+                    status: 'dispatch_expired',
+                    label: 'Chưa tìm được tài xế',
+                };
+            }
+        }
+
+        return {
+            status: order.status,
+            label: this.statusLabel(order.status, order.order_type),
+        };
     }
 
     private sumItemCount(items: any[] = []) {
@@ -140,11 +184,15 @@ export class CustomerOrderQueryService {
     }
 
     private buildListItem(order: any, merchant: any) {
+        const display = this.displayStatus(order);
         return {
             id: String(order._id),
             order_number: order.order_number,
             status: order.status,
-            status_label: this.statusLabel(order.status),
+            status_label: display.label,
+            display_status: display.status,
+            display_status_label: display.label,
+            order_type: order.order_type,
             created_at: order.created_at,
             updated_at: order.updated_at,
             total_amount: Number(order.total_amount ?? 0),
@@ -358,11 +406,15 @@ export class CustomerOrderQueryService {
                     : 0,
             ]);
 
+        const display = this.displayStatus(order);
+
         return {
             id: String(order._id),
             order_number: order.order_number,
             status: order.status,
-            status_label: this.statusLabel(order.status),
+            status_label: display.label,
+            display_status: display.status,
+            display_status_label: display.label,
             order_type: order.order_type,
             created_at: order.created_at,
             updated_at: order.updated_at,
