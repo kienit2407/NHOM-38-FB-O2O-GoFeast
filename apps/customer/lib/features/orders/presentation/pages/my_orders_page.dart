@@ -519,13 +519,14 @@ class _OrderCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         _StatusChip(label: item.statusLabel),
-                        const SizedBox(width: 8),
                         _OrderTypeChip(orderType: item.orderType),
-                        if (item.etaMin != null) ...[
-                          const SizedBox(width: 8),
+                        if (item.etaMin != null)
                           Text(
                             '${item.etaMin} phút',
                             style: const TextStyle(
@@ -533,7 +534,6 @@ class _OrderCard extends StatelessWidget {
                               fontSize: 12,
                             ),
                           ),
-                        ],
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -974,18 +974,23 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColor.primary.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: AppColor.primary,
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 160),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: AppColor.primary.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColor.primary,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
         ),
       ),
     );

@@ -1,5 +1,4 @@
 import 'package:customer/app/routes/bottom_navigation_bar.dart';
-import 'package:customer/core/di/providers.dart';
 import 'package:customer/features/addresses/data/models/saved_address_models.dart';
 import 'package:customer/features/addresses/presentation/pages/add_adress_page.dart';
 import 'package:customer/features/addresses/presentation/pages/adress_page.dart';
@@ -10,7 +9,6 @@ import 'package:customer/features/auth/domain/entities/auth_user.dart'
 import 'package:customer/features/auth/presentation/pages/enter_phone_page.dart';
 import 'package:customer/features/dinein/data/models/dine_in_models.dart';
 import 'package:customer/features/favorites/presentation/pages/my_favorite_merchant_page.dart';
-import 'package:customer/features/home/presentation/pages/home_page.dart';
 import 'package:customer/features/merchant/presentation/pages/food_detail_page.dart';
 import 'package:customer/features/merchant/presentation/pages/merchant_detail_page.dart';
 import 'package:customer/features/orders/data/models/checkout_delivery_draft.dart';
@@ -49,6 +47,14 @@ final routerRefreshProvider = Provider<RouterRefreshNotifier>((ref) {
   ref.onDispose(n.dispose);
   return n;
 });
+
+DineInContext? _readDineInContext(dynamic value) {
+  if (value is DineInContext) return value;
+  if (value is Map) {
+    return DineInContext.fromJson(value.cast<String, dynamic>());
+  }
+  return null;
+}
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final refresh = ref.watch(routerRefreshProvider);
@@ -176,11 +182,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final extra = state.extra;
 
           if (extra is Map && extra['mode'] == 'dine_in') {
-            final ctx = extra['dineInContext'] as DineInContext;
-            return MerchantDetailPage.dineIn(
-              merchantId: id,
-              dineInContext: ctx,
-            );
+            final ctx = _readDineInContext(extra['dineInContext']);
+            if (ctx != null) {
+              return MerchantDetailPage.dineIn(
+                merchantId: id,
+                dineInContext: ctx,
+              );
+            }
           }
 
           final lat =
@@ -207,14 +215,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final extra = state.extra;
 
           if (extra is Map && extra['mode'] == 'dine_in') {
-            final ctx = extra['dineInContext'] as DineInContext;
+            final ctx = _readDineInContext(extra['dineInContext']);
             final merchantId = extra['merchantId']?.toString();
 
-            return FoodDetailPage.dineIn(
-              productId: id,
-              merchantId: merchantId,
-              dineInContext: ctx,
-            );
+            if (ctx != null) {
+              return FoodDetailPage.dineIn(
+                productId: id,
+                merchantId: merchantId,
+                dineInContext: ctx,
+              );
+            }
           }
 
           final lat = (extra is Map ? (extra['lat'] as num?) : null)
