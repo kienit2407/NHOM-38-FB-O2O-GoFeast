@@ -33,6 +33,7 @@ class _QrScanPageState extends ConsumerState<QrScanPage>
   bool _popped = false;
   bool _torchOn = false;
   bool _isPickingImage = false;
+  bool _isDebugDialogOpen = false;
   double _zoom = 0.0;
 
   @override
@@ -52,7 +53,7 @@ class _QrScanPageState extends ConsumerState<QrScanPage>
   }
 
   Future<void> _handleDetect(BarcodeCapture capture) async {
-    if (_popped || _isEnteringTable) return;
+    if (_popped || _isEnteringTable || _isDebugDialogOpen) return;
 
     final codes = capture.barcodes;
     if (codes.isEmpty) return;
@@ -126,52 +127,32 @@ class _QrScanPageState extends ConsumerState<QrScanPage>
   }
 
   Future<void> _debugEnterTable() async {
-    if (_popped || _isEnteringTable) return;
+    if (_isEnteringTable || _popped || _isDebugDialogOpen) return;
 
-    final inputCtrl = TextEditingController();
-    final rawValue = await showDialog<String>(
+    setState(() => _isDebugDialogOpen = true);
+    final input = await showGeneralDialog<String>(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Debug vào bàn'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Nhập tableId (24 ký tự) hoặc dán URL QR bàn.',
-                style: TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: inputCtrl,
-                autofocus: true,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Ví dụ: 69b58c7f8729bc5bde25de58',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Huỷ'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(ctx).pop(inputCtrl.text.trim()),
-              child: const Text('Vào bàn'),
-            ),
-          ],
+      barrierDismissible: true,
+      barrierLabel: 'debug_table_input',
+      barrierColor: Colors.black.withValues(alpha: 0.58),
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return const SafeArea(child: _DebugTableInputDialog());
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return ScaleTransition(
+          scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+          child: FadeTransition(opacity: animation, child: child),
         );
       },
     );
-
     if (!mounted) return;
-    final value = rawValue?.trim() ?? '';
-    if (value.isEmpty) return;
+    setState(() => _isDebugDialogOpen = false);
 
-    await _finishWithResult(value);
+    if (!mounted || input == null || input.isEmpty) return;
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await _finishWithResult(input);
   }
 
   Future<void> _pickQrFromGallery() async {
@@ -575,6 +556,164 @@ class _GlassCircleButton extends StatelessWidget {
     );
   }
 }
+
+class _DebugTableInputDialog extends StatefulWidget {
+  const _DebugTableInputDialog();
+
+  @override
+  State<_DebugTableInputDialog> createState() => _DebugTableInputDialogState();
+}
+
+class _DebugTableInputDialogState extends State<_DebugTableInputDialog> {
+  final TextEditingController _controller = TextEditingController();
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = _controller.text.trim();
+    if (value.isEmpty) {
+      setState(() => _errorText = 'Vui lòng nhập mã bàn');
+      return;
+    }
+
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 22),
+      backgroundColor: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+        decoration: BoxDecoration(
+          color: AppColor.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColor.primary.withValues(alpha: 0.18)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1A000000),
+              blurRadius: 22,
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppColor.primaryLight,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.table_restaurant_rounded,
+                    color: AppColor.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text(
+                  'Debug vào bàn',
+                  style: TextStyle(
+                    color: AppColor.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Nhập tableId hoặc link QR để test trên máy ảo',
+              style: TextStyle(
+                color: AppColor.textSecondary,
+                fontSize: 13,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              cursorColor: AppColor.primary,
+              textInputAction: TextInputAction.done,
+              onChanged: (_) {
+                if (_errorText != null) {
+                  setState(() => _errorText = null);
+                }
+              },
+              onSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                
+                hintText: 'Nhập tableId hoặc QR link',
+                errorText: _errorText,
+                filled: true,
+                fillColor: AppColor.background,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColor.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColor.primary, width: 1.4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColor.textSecondary,
+                      side: const BorderSide(color: AppColor.border),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Hủy'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _submit,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColor.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Vào bàn'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
 
 class _ScannerOverlayPainter extends CustomPainter {
   const _ScannerOverlayPainter({required this.scanRect});

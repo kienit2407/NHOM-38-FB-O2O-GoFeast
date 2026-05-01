@@ -5,7 +5,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'core/di/providers.dart'; // bootstrapOverrides()
 
 // 1. Hàm này BẮT BUỘC phải nằm ở cấp cao nhất (Top-level), ngoài mọi class
