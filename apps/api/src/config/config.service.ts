@@ -26,7 +26,7 @@ export class ConfigService {
   // ====== GIỮ NGUYÊN CÁC GETTER CỦA BẠN ======
 
   get mongoUri(): string {
-    return this.env.MONGO_URI || 'mongodb://hocnode:y2xnBjrDSvXotttf@localhost:27017';
+    return this.env.MONGO_URI || 'mongodb://localhost:27017/fabo2o';
   }
   get trackAsiaKey(): string {
     return this.env.TRACKASIA_KEY || '';

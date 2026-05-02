@@ -533,7 +533,7 @@ export class AuthService {
     // User không tồn tại
     if (!user) {
       console.log('[AuthService.validateUser] User not found:', email);
-      throw new BadRequestException('Merchant không tồn tại, vui lòng đăng ký');
+      throw new BadRequestException('Người dùng không tồn tại, vui lòng đăng ký');
     }
 
     const userDoc = user as any;

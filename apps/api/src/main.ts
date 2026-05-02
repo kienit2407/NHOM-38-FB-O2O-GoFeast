@@ -3,10 +3,11 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { Transport, MicroserviceOptions } from '@nestjs/microservices';
 import * as dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
+import { resolve } from 'path';
 import { AppModule } from './app.module';
 import { ConfigService } from './config/config.service';
 
-dotenv.config();
+dotenv.config({ path: resolve(__dirname, '..', '.env') });
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
